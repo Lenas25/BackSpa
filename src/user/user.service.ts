@@ -48,7 +48,7 @@ export class UserService {
     return await this.userRepository.find();
   }
 
-  async findOne(id: number) {
+  async findOne(id: string) {
     try {
       return await this.userRepository.findOne({
         where: {
@@ -60,7 +60,7 @@ export class UserService {
     }
   }
 
-  async update(id: number, updateUserDto: UpdateUserDto) {
+  async update(id: string, updateUserDto: UpdateUserDto) {
     try {
       if (updateUserDto.password) {
        const isHashed = updateUserDto.password.startsWith('$2a$') || updateUserDto.password.startsWith('$2b$') || updateUserDto.password.startsWith('$2y$') || updateUserDto.password.startsWith('$2x$');
@@ -78,7 +78,7 @@ export class UserService {
     }
   }
 
-  async remove(id: number) {
+  async remove(id: string) {
     try {
       const detail = await this.userRepository.delete(id);
       if (detail.affected === 0) {

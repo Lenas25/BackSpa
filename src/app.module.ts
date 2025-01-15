@@ -37,6 +37,7 @@ import { ImagesModule } from './images/images.module';
       autoLoadEntities: true,
       synchronize: true,
       entities: [Grade, Course, Enrollment, User, Notification, Activity],
+      ssl: { rejectUnauthorized: false },
     }),
     AuthModule,
     ImagesModule,

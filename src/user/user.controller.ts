@@ -41,7 +41,7 @@ export class UserController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: number, @Res() response: Response): Promise<Response> {
+  async findOne(@Param('id') id: string, @Res() response: Response): Promise<Response> {
     try {
       const user = await this.userService.findOne(id);
       return response.status(200).json({
@@ -58,7 +58,7 @@ export class UserController {
 
   @Patch(':id')
   @Roles(Role.ADMIN)
-  async update(@Param('id') id: number, @Body() updateUserDto: UpdateUserDto, @Res() response: Response): Promise<Response> {
+  async update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto, @Res() response: Response): Promise<Response> {
     try {
       const userUpdated = await this.userService.update(id, updateUserDto);
       return response.status(200).json({
@@ -75,7 +75,7 @@ export class UserController {
 
 
   @Delete(':id')
-  async remove(@Param('id') id: number, @Res() response: Response): Promise<Response> {
+  async remove(@Param('id') id: string, @Res() response: Response): Promise<Response> {
     try {
       const userDeleted = await this.userService.remove(id);
       return response.status(200).json({

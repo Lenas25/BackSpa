@@ -1,3 +1,4 @@
+import { MinLength } from 'class-validator';
 import { Role } from 'src/common/enums/role.enum';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
 import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
@@ -5,7 +6,7 @@ import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
 @Entity()
 export class User {
   @PrimaryGeneratedColumn()
-  id: number;
+  id: string;
   @Column({ length: 100 })
   name: string;
   @Column({ length: 100 })
@@ -16,7 +17,7 @@ export class User {
   password: string;
   @Column({ type: 'enum', enum: Role, default: Role.ALUMNO })
   role: Role;
-  @Column({ length: 10 })
+  @Column({ length: 20, nullable: true })
   phone: string;
   @Column({ unique: true, length: 60 })
   email: string;

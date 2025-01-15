@@ -22,7 +22,7 @@ export class EnrollmentController {
   // Por usuario
   @Get(':id')
   @UseGuards(AuthGuard)
-  async findOneByUser(@Param('id') id: number, @Res() response: Response): Promise<Response> {
+  async findOneByUser(@Param('id') id: string, @Res() response: Response): Promise<Response> {
     try {
       const enrollment = await this.enrollmentService.findOneByUser(id);
       return response.status(201).json({

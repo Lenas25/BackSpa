@@ -22,7 +22,7 @@ export class EnrollmentService {
     return await this.enrollmentRepository.find();
   }
 
-  async findOneByUser(id: number) {
+  async findOneByUser(id: string) {
     try {
       const user = await this.userRepository.findOne({
         where: {

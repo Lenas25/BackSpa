@@ -4,8 +4,7 @@ import type { Role } from "src/common/enums/role.enum";
 
 export class CreateUserDto {
   @IsNumber()
-  @Min(100000)
-  id: number;
+  id: string;
   @IsString()
   @MinLength(3)
   @Transform(({value}) => value.trim())
