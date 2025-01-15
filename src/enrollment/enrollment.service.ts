@@ -72,7 +72,6 @@ export class EnrollmentService {
   }
 
   async update(id: number, updateEnrollmentDto: UpdateEnrollmentDto) {
-    console.log(updateEnrollmentDto);
     try {
       const course = await this.courseRepository.findOne({
         where: {
@@ -95,6 +94,9 @@ export class EnrollmentService {
       const enrollmentsToRemove = currentEnrollments.filter(
         (enrollment) => !updateEnrollmentDto.users.some((newUser) => newUser.id === enrollment.user.id)
       );
+
+      console.log('usersToAdd', usersToAdd);
+      console.log('enrollmentsToRemove', enrollmentsToRemove);
 
       for (const userToAdd of usersToAdd) {
         const user = await this.userRepository.findOne({
@@ -129,7 +131,8 @@ export class EnrollmentService {
       return await this.enrollmentRepository.find({
         where: {
           course
-        }
+        },
+        relations: ['user']
       });
     } catch (error) {
       throw new BadRequestException(error);
