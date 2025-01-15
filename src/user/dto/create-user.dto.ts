@@ -3,7 +3,7 @@ import { IsEmail, IsEnum, IsNumber, IsOptional, IsString, Min, MinLength } from 
 import { Role } from "src/common/enums/role.enum";
 
 export class CreateUserDto {
-  @IsNumber()
+  @IsString()
   id: string;
   @IsString()
   @MinLength(3)
