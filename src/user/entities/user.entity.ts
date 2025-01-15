@@ -1,11 +1,11 @@
 import { MinLength } from 'class-validator';
 import { Role } from 'src/common/enums/role.enum';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
-import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, OneToMany, PrimaryColumn } from 'typeorm';
 
 @Entity()
 export class User {
-  @PrimaryGeneratedColumn()
+  @PrimaryColumn({ length: 36 })
   id: string;
   @Column({ length: 100 })
   name: string;
