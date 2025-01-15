@@ -1,5 +1,5 @@
 import { Transform, Type } from "class-transformer";
-import { IsArray, IsDate, IsNumber, IsOptional, IsString, MinLength, ValidateNested } from "class-validator";
+import { IsArray, IsDate, IsISO8601, IsNumber, IsOptional, IsString, MinLength, ValidateNested } from "class-validator";
 import { CreateActivityDto } from "src/activity/dto/create-activity.dto";
 
 
@@ -18,12 +18,10 @@ export class CreateCourseDto {
   @IsOptional()
   imageUrl: string;
 
-  @IsDate()
-  @Transform(({ value }) => new Date(value))
+  @IsISO8601()
   initialDate: Date;
 
-  @IsDate()
-  @Transform(({ value }) => new Date(value))
+  @IsISO8601()
   endDate: Date;
 
   @IsNumber()
