@@ -16,31 +16,6 @@ export class ActivityService {
     private readonly courseRepository: Repository<Course>,
   ) { }
 
-  async create(createActivityDto: CreateActivityDto) {
-    // try {
-    //   const course = await this.courseRepository.findOne({
-    //     where: {
-    //       id: createActivityDto.id_course
-    //     }
-    //   });
-    //   if (!course) {
-    //     throw new NotFoundException('Curso no encontrado');
-    //   }
-    //   for (const activity of createActivityDto.activities) {
-    //     const newActivity = this.activityRepository.create(activity);
-    //     newActivity.course = course;
-    //     await this.activityRepository.save(newActivity);
-    //   }
-    //   return await this.activityRepository.find({
-    //     where: {
-    //       course
-    //     }
-    //   });
-    // } catch (error) {
-    //   throw new BadRequestException(error);
-    // }
-  }
-
   async findOne(id: number) {
     try {
       const course = await this.courseRepository.findOne({
@@ -48,10 +23,11 @@ export class ActivityService {
           id
         }
       })
+
       if (!course) {
         throw new NotFoundException('Actividades relacionadas a curso no encontrado');
       }
-
+      console.log(course);
       return await this.activityRepository.find({
         where: {
           course

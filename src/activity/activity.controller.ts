@@ -14,23 +14,6 @@ import { AuthGuard } from 'src/auth/guard/auth.guard';
 export class ActivityController {
   constructor(private readonly activityService: ActivityService) { }
 
-  @Post()
-  @Roles(Role.ADMIN)
-  async create(@Body() createActivityDto: CreateActivityDto, @Res() response: Response): Promise<Response> {
-    try {
-      const activities = await this.activityService.create(createActivityDto);
-      return response.status(201).json({
-        message: 'Actividades creadas con éxito',
-        data: activities
-      });
-    } catch (error) {
-      return response.status(400).json({
-        message: 'Error al crear las actividades',
-        error: error.message
-      });
-    }
-  }
-
   // Por curso
   @Get(':id')
   async findOne(@Param('id') id: number) {
