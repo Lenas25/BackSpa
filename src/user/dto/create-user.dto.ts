@@ -1,6 +1,6 @@
 import { Transform } from "class-transformer";
-import { IsEmail, IsNumber, IsOptional, IsString, Min, MinLength } from "class-validator";
-import type { Role } from "src/common/enums/role.enum";
+import { IsEmail, IsEnum, IsNumber, IsOptional, IsString, Min, MinLength } from "class-validator";
+import { Role } from "src/common/enums/role.enum";
 
 export class CreateUserDto {
   @IsNumber()
@@ -28,9 +28,8 @@ export class CreateUserDto {
   @IsString()
   password: string;
   
-  @IsString()
   @IsOptional()
-  @Transform(({value}) => value.toUpperCase())
+  @IsEnum(Role)
   role?: Role;
 
   @IsString()
