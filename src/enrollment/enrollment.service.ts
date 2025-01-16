@@ -34,7 +34,9 @@ export class EnrollmentService {
       }
       const enrollment = await this.enrollmentRepository.find({
         where: {
-          user
+          user :{
+            id: user.id
+          }
         },
         relations: ['course', 'user']
       });
@@ -59,7 +61,10 @@ export class EnrollmentService {
       }
       const enrollment = await this.enrollmentRepository.find({
         where: {
-          course
+          course: {
+            id: course.id
+          },
+          active: true
         }
       });
       if (!enrollment) {
@@ -83,7 +88,11 @@ export class EnrollmentService {
       }
 
       const currentEnrollments = await this.enrollmentRepository.find({
-        where: { course },
+        where: {
+          course: {
+            id: course.id
+          }
+        },
         relations: ['user'],
       });
 
@@ -94,9 +103,6 @@ export class EnrollmentService {
       const enrollmentsToRemove = currentEnrollments.filter(
         (enrollment) => !updateEnrollmentDto.users.some((newUser) => newUser.id === enrollment.user.id)
       );
-
-      console.log('usersToAdd', usersToAdd);
-      console.log('enrollmentsToRemove', enrollmentsToRemove);
 
       for (const userToAdd of usersToAdd) {
         const user = await this.userRepository.findOne({
@@ -112,7 +118,7 @@ export class EnrollmentService {
             course,
             active: true
           });
-          
+
           await this.enrollmentRepository.save(newEnrollment);
         }
       }
@@ -130,7 +136,9 @@ export class EnrollmentService {
 
       return await this.enrollmentRepository.find({
         where: {
-          course
+          course: {
+            id: course.id
+          }
         },
         relations: ['user']
       });
@@ -150,7 +158,9 @@ export class EnrollmentService {
       const enrollments = await this.enrollmentRepository.find({
         where: {
           active: true,
-          course
+          course:{
+            id: course.id
+          }
         }
       });
 

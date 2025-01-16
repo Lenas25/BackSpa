@@ -6,6 +6,7 @@ import type { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { Twilio } from 'twilio';
+import { Console } from 'console';
 
 @Injectable()
 export class UserService {
@@ -62,11 +63,15 @@ export class UserService {
 
   async update(id: string, updateUserDto: UpdateUserDto) {
     try {
+      const user = await this.userRepository.findOne({
+        where: {
+          id,
+        },
+      });
       if (updateUserDto.password) {
-       const isHashed = updateUserDto.password.startsWith('$2a$') || updateUserDto.password.startsWith('$2b$') || updateUserDto.password.startsWith('$2y$') || updateUserDto.password.startsWith('$2x$');
-       if (!isHashed) {
-         updateUserDto.password = bcrypt.hashSync(updateUserDto.password, 10);
-       }
+        updateUserDto.password = bcrypt.hashSync(updateUserDto.password, 10);
+      } else {
+        updateUserDto.password = user.password;
       }
       const detail = await this.userRepository.update(id, updateUserDto);
       if (detail.affected === 0) {

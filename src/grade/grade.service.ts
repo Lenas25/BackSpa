@@ -26,18 +26,23 @@ export class GradeService {
     try {
       const activity = await this.activityRepository.findOne({
         where: {
-          id
-        }
+          id,
+        },
       });
       if (!activity) {
         throw new BadRequestException("La actividad no existe");
       }
-      return await this.gradeRepository.find({
+  
+      const grades = await this.gradeRepository.find({
         where: {
-          id_activity: id
+          id_activity: id,
         },
-        relations: ['enrollment']
+        relations: ['enrollment'],
       });
+  
+      const activeGrades = grades.filter(grade => grade.enrollment.active);
+  
+      return activeGrades;
     } catch (e) {
       throw new BadRequestException(e.message);
     }
@@ -67,7 +72,9 @@ export class GradeService {
         const enrollment = await this.enrollmentRepository.findOne({
           where: {
             id: grade.id_enrollment,
-            course
+            course :{
+              id
+            }
           }
         })
         if (!enrollment) {
@@ -130,7 +137,9 @@ export class GradeService {
       }
       return await this.gradeRepository.find({
         where: {
-          enrollment
+          enrollment:{
+            id,
+          },
         },
         relations: ['activity']
       });

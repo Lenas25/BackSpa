@@ -21,18 +21,14 @@ export class ActivityService {
       const course = await this.courseRepository.findOne({
         where: {
           id
-        }
+        },
+        relations: ['activities']
       })
 
       if (!course) {
         throw new NotFoundException('Actividades relacionadas a curso no encontrado');
       }
-      console.log(course);
-      return await this.activityRepository.find({
-        where: {
-          course
-        }
-      })
+      return course.activities;
     } catch (error) {
       throw new NotFoundException(error);
     }
