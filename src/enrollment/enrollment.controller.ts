@@ -1,6 +1,5 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, Res, UseGuards } from '@nestjs/common';
 import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
-import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { EnrollmentService } from './enrollment.service';
 import type { Response } from 'express';
 import { Roles } from 'src/common/decorators/roles.decorator';

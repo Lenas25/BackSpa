@@ -5,7 +5,6 @@ import { Course } from './entities/course.entity';
 import type { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Activity } from 'src/activity/entities/activity.entity';
-import { plainToClass, plainToInstance } from 'class-transformer';
 
 @Injectable()
 export class CourseService {

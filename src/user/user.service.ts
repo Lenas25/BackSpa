@@ -6,7 +6,6 @@ import type { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { Twilio } from 'twilio';
-import { Console } from 'console';
 
 @Injectable()
 export class UserService {
