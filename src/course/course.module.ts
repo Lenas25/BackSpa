@@ -6,11 +6,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from 'src/auth/auth.module';
 import { ActivityModule } from 'src/activity/activity.module';
 import { ActivityService } from 'src/activity/activity.service';
+import { UserModule } from 'src/user/user.module';
+import { UserService } from 'src/user/user.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Course]), AuthModule, forwardRef(() => ActivityModule)],
+  imports: [TypeOrmModule.forFeature([Course]), AuthModule, forwardRef(() => ActivityModule), UserModule],
   controllers: [CourseController],
-  providers: [CourseService, ActivityService],
-  exports: [TypeOrmModule, CourseModule],
+  providers: [CourseService, ActivityService, UserService],
+  exports: [TypeOrmModule, CourseService],
 })
 export class CourseModule {}

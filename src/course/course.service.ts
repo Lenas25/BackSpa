@@ -5,6 +5,7 @@ import { Course } from './entities/course.entity';
 import type { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Activity } from 'src/activity/entities/activity.entity';
+import { User } from 'src/user/entities/user.entity';
 
 @Injectable()
 export class CourseService {
@@ -14,11 +15,22 @@ export class CourseService {
     private courseRepository: Repository<Course>,
     @InjectRepository(Activity)
     private activityRepository: Repository<Activity>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
   ) { }
 
   async create(createCourseDto: CreateCourseDto) {
     try {
-      const newCourse = this.courseRepository.create(createCourseDto);
+      const tutor = await this.userRepository.findOne({ where: { id: createCourseDto.id_tutor } });
+      if (!tutor) {
+        throw new Error('No se encontró el tutor');
+      }
+      // biome-ignore lint/performance/noDelete: <explanation>
+      delete createCourseDto.id_tutor;
+      const newCourse = this.courseRepository.create({
+        ...createCourseDto,
+        tutor,
+      });
       await this.courseRepository.save(newCourse);
       if (createCourseDto.activities && createCourseDto.activities.length > 0) {
         const activities = createCourseDto.activities.map(activityDto => {
@@ -35,7 +47,7 @@ export class CourseService {
   }
 
   async findAll() {
-    return await this.courseRepository.find({ relations: ['activities'] });
+    return await this.courseRepository.find({ relations: ['activities', 'tutor'] });
   }
 
   async findOne(id: number) {
@@ -44,7 +56,7 @@ export class CourseService {
         where: {
           id,
         },
-        relations: ['activities'],
+        relations: ['activities', 'tutor'],
       });
     } catch (error) {
       throw new Error(error.message);
@@ -53,12 +65,21 @@ export class CourseService {
 
   async update(id: number, updateCourseDto: UpdateCourseDto) {
     try {
-      const course = await this.courseRepository.findOne({ where: { id } });
+      const tutor = await this.userRepository.findOne({ where: { id: updateCourseDto.id_tutor } });
+      if (!tutor) {
+        throw new Error('No se encontró el tutor');
+      }
+      const course = await this.courseRepository.findOne({ where: { 
+        id,
+       } });
       if (!course) {
         throw new Error('No se encontró el curso');
       }
       const { activities: _, ...courseData } = updateCourseDto;
+      // biome-ignore lint/performance/noDelete: <explanation>
+      delete courseData.id_tutor;
       Object.assign(course, courseData);
+      course.tutor = tutor;
       await this.courseRepository.save(course);
       const existingActivities = await this.activityRepository.find({ where: { course } });
       if (updateCourseDto.activities && updateCourseDto.activities.length > 0) {
@@ -84,7 +105,7 @@ export class CourseService {
           }
         }));
       }
-      const updatedCourse  = await this.courseRepository.findOne({ where: { id }, relations: ['activities'] });
+      const updatedCourse  = await this.courseRepository.findOne({ where: { id }, relations: ['activities', 'tutor'] });
       return updatedCourse;
     } catch (error) {
       throw new Error(`Error actualizando el curso: ${error}`);

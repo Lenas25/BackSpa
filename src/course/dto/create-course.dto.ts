@@ -31,4 +31,8 @@ export class CreateCourseDto {
   @ValidateNested({ each: true })
   @Type(() => CreateActivityDto)
   activities: CreateActivityDto[];
+
+  @IsOptional()
+  @IsString()
+  id_tutor: string;
 }

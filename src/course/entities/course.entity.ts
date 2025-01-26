@@ -1,7 +1,8 @@
 import { Exclude } from "class-transformer";
 import { Activity } from "src/activity/entities/activity.entity";
 import { Enrollment } from "src/enrollment/entities/enrollment.entity";
-import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from "typeorm";
+import { User } from "src/user/entities/user.entity";
+import { Column, Entity, JoinColumn, ManyToOne, OneToMany, OneToOne, PrimaryGeneratedColumn } from "typeorm";
 
 @Entity()
 export class Course {
@@ -32,4 +33,8 @@ export class Course {
 
   @OneToMany(() => Activity, (activities) => activities.course)
   activities: Activity[];
+
+  @ManyToOne(() => User, (user) => user.courses)
+  @JoinColumn({ name: 'id_tutor' })
+  tutor: User;
 }

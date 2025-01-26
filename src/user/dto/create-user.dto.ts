@@ -1,4 +1,4 @@
-import { Transform } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import { IsEmail, IsEnum, IsNumber, IsOptional, IsString, Min, MinLength } from "class-validator";
 import { Role } from "src/common/enums/role.enum";
 
@@ -35,4 +35,8 @@ export class CreateUserDto {
   @IsString()
   @MinLength(9)
   phone: string;
+
+  @IsNumber()
+  @IsOptional()
+  id_course?: number;
 }

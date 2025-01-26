@@ -1,7 +1,8 @@
-import { MinLength } from 'class-validator';
+
 import { Role } from 'src/common/enums/role.enum';
+import { Course } from 'src/course/entities/course.entity';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
-import { Entity, Column, PrimaryGeneratedColumn, OneToMany, PrimaryColumn } from 'typeorm';
+import { Entity, Column, OneToMany, PrimaryColumn, OneToOne, JoinColumn } from 'typeorm';
 
 @Entity()
 export class User {
@@ -26,6 +27,8 @@ export class User {
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP', onUpdate: 'CURRENT_TIMESTAMP' })
   updatedAt: Date;
 
+  @OneToMany(() => Course, (course) => course.tutor)
+  courses: Course[];
 
   @OneToMany(() => Enrollment, (enrollments) => enrollments.user)
   enrollments: Enrollment[];

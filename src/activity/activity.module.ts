@@ -11,6 +11,6 @@ import { AuthModule } from 'src/auth/auth.module';
   imports: [TypeOrmModule.forFeature([Activity]), AuthModule, forwardRef(() => CourseModule)],  
   controllers: [ActivityController],
   providers: [ActivityService],
-  exports: [TypeOrmModule, ActivityModule],
+  exports: [TypeOrmModule, ActivityService],
 })
 export class ActivityModule {}
