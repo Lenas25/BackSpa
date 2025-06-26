@@ -81,7 +81,7 @@ export class CourseService {
       Object.assign(course, courseData);
       course.tutor = tutor;
       await this.courseRepository.save(course);
-      const existingActivities = await this.activityRepository.find({ where: { course } });
+      const existingActivities = await this.activityRepository.find({ where: { course: { id } } });
       if (updateCourseDto.activities && updateCourseDto.activities.length > 0) {
         const updateActivityIds = updateCourseDto.activities.map(activity => activity.id).filter(id => id !== undefined);
         const deleteActivities = existingActivities.filter(activity => !updateActivityIds.includes(activity.id));
