@@ -73,6 +73,7 @@ export class EnrollmentController {
   }
 
   @Patch('/finish/:id')
+  @Roles(Role.ADMIN)
   async finishCourse(@Param('id') id:number, @Res() response: Response): Promise<Response> {
     try {
       const enrollmentFinished = await this.enrollmentService.finishCourse(id);

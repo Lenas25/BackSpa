@@ -1,9 +1,13 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors, UploadedFile, Res } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors, UploadedFile, Res, UseGuards } from '@nestjs/common';
 import { ImagesService } from './images.service';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import { v2 as cloduinary } from 'cloudinary';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
+import { AuthGuard } from 'src/auth/guard/auth.guard';
+import { RolesGuard } from 'src/auth/guard/roles.guard';
+import { Roles } from 'src/common/decorators/roles.decorator';
+import { Role } from 'src/common/enums/role.enum';
 
 const storage = new CloudinaryStorage({
   cloudinary: cloduinary,
@@ -14,6 +18,8 @@ export class ImagesController {
   constructor(private readonly imagesService: ImagesService) {}
 
   @Post('upload')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.TUTOR)
   @UseInterceptors(FileInterceptor('file', { storage }))
   async uploadImage(@UploadedFile() file:Express.Multer.File, @Res() res:Response):Promise<Response> {
     try{
@@ -39,6 +45,8 @@ export class ImagesController {
   }
 
   @Delete(':id')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   async remove(@Param('id') id: string, @Res() res:Response):Promise<Response> {
     try{
       await this.imagesService.remove(id);
