@@ -1,7 +1,12 @@
+// MUST be the first import: any module transitively imported below (e.g.
+// AppModule -> AuthModule -> jwt.constants.ts) reads process.env at module
+// evaluation time. If dotenv/config runs after those imports resolve, the
+// values it loads are computed too late to reach code that already read
+// `undefined` and baked it into an exported constant (see jwt.constants.ts).
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
-import 'dotenv/config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
