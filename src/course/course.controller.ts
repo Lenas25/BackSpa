@@ -3,7 +3,6 @@ import { CourseService } from './course.service';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { UpdateCourseDto } from './dto/update-course.dto';
 import type { Response } from 'express';
-import type { Course } from './entities/course.entity';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { Role } from 'src/common/enums/role.enum';
 import { RolesGuard } from 'src/auth/guard/roles.guard';
@@ -32,6 +31,7 @@ export class CourseController {
     }
   }
 
+  // Public catalog: no auth required, no section internals returned.
   @Get()
   async findAll(@Res() response: Response): Promise<Response> {
     return response.status(200).json({
@@ -41,8 +41,6 @@ export class CourseController {
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.TUTOR)
-  @UseGuards(AuthGuard, RolesGuard)
   async findOne(@Param('id') id: number, @Res() response: Response): Promise<Response> {
     try {
       const course = await this.courseService.findOne(id);

@@ -1,38 +1,18 @@
-import { Transform, Type } from "class-transformer";
-import { IsArray, IsDate, IsISO8601, IsNumber, IsOptional, IsString, MinLength, ValidateNested } from "class-validator";
-import { CreateActivityDto } from "src/activity/dto/create-activity.dto";
-
+import { Transform } from "class-transformer";
+import { IsOptional, IsString, MinLength } from "class-validator";
 
 export class CreateCourseDto {
   @IsString()
   @MinLength(3)
-  @Transform(({value}) => value.trim())
+  @Transform(({ value }) => value.trim())
   name: string;
 
   @IsString()
   @IsOptional()
-  @Transform(({value}) => value.trim())
+  @Transform(({ value }) => value.trim())
   description: string;
 
   @IsString()
   @IsOptional()
   imageUrl: string;
-
-  @IsISO8601()
-  initialDate: Date;
-
-  @IsISO8601()
-  endDate: Date;
-
-  @IsNumber()
-  duration: number;
-
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreateActivityDto)
-  activities: CreateActivityDto[];
-
-  @IsOptional()
-  @IsString()
-  id_tutor: string;
 }
