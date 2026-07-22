@@ -95,12 +95,20 @@ export class EnrollmentService {
         relations: ['user'],
       });
 
-      const usersToAdd = updateEnrollmentDto.users.filter(
+      // Duplicate Enrollment Rejection (spec: "section-enrollment" domain):
+      // dedupe the incoming payload itself first (a caller submitting the
+      // same user id twice must never create two enrollment rows for the
+      // same section), then exclude anyone already enrolled in this section.
+      const uniqueIncomingUsers = Array.from(
+        new Map(updateEnrollmentDto.users.map((user) => [user.id, user])).values(),
+      );
+
+      const usersToAdd = uniqueIncomingUsers.filter(
         (newUser) => !currentEnrollments.some((enrollment) => enrollment.user.id === newUser.id)
       );
 
       const enrollmentsToRemove = currentEnrollments.filter(
-        (enrollment) => !updateEnrollmentDto.users.some((newUser) => newUser.id === enrollment.user.id)
+        (enrollment) => !uniqueIncomingUsers.some((newUser) => newUser.id === enrollment.user.id)
       );
 
       for (const userToAdd of usersToAdd) {
@@ -127,7 +135,7 @@ export class EnrollmentService {
       }
 
       for (const enrollment of currentEnrollments) {
-        if (updateEnrollmentDto.users.some((newUser) => newUser.id === enrollment.user.id)) {
+        if (uniqueIncomingUsers.some((newUser) => newUser.id === enrollment.user.id)) {
           enrollment.active = true;
           await this.enrollmentRepository.save(enrollment);
         }
