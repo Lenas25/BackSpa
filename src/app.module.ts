@@ -35,7 +35,11 @@ import { ImagesModule } from './images/images.module';
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
       autoLoadEntities: true,
-      synchronize: true,
+      // Schema changes are managed exclusively through TypeORM migrations
+      // (npm run migration:run). Auto-sync is disabled permanently to avoid
+      // uncontrolled DDL against the course/section tables. See
+      // BackSpa/docs/deploy-runbook.md.
+      synchronize: false,
       entities: [Grade, Course, Enrollment, User, Notification, Activity],
       ssl: { rejectUnauthorized: false },
     }),
