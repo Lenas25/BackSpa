@@ -19,8 +19,16 @@ export class EnrollmentService {
     private readonly sectionRepository: Repository<Section>,
   ) { }
 
-  async findAll() {
-    return await this.enrollmentRepository.find();
+  // Role-Based Section Access (spec: "tutor-scoping" domain) — TUTOR is
+  // limited to enrollments of Sections they own when listing; ADMIN (or
+  // callers with no user context, e.g. internal use) see every enrollment.
+  async findAll(requestingUser?: RequestingUser) {
+    if (requestingUser?.role === Role.TUTOR) {
+      return await this.enrollmentRepository.find({
+        where: { section: { tutor: { id: requestingUser.id } } },
+      });
+    }
+    return await this.enrollmentRepository.find(undefined);
   }
 
   // Alumno sees own data only (spec: "tutor-scoping" domain) — an ALUMNO

@@ -94,6 +94,72 @@ describe('EnrollmentService — duplicate enrollment rules', () => {
   });
 });
 
+// Role-Based Section Access (spec: "tutor-scoping" domain) — GET /enrollment
+// (findAll) MUST NOT leak every section's roster to a TUTOR; ADMIN keeps the
+// full list, TUTOR is scoped to enrollments of sections they own.
+describe('EnrollmentService.findAll — tutor section-scoped listing', () => {
+  let service: EnrollmentService;
+  let enrollmentRepository: { find: jest.Mock };
+
+  const allEnrollments = [
+    { id: 1, section: { id: 10, tutor: { id: 'tutor-own' } } },
+    { id: 2, section: { id: 20, tutor: { id: 'tutor-other' } } },
+  ];
+
+  beforeEach(async () => {
+    enrollmentRepository = { find: jest.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        EnrollmentService,
+        { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
+        { provide: getRepositoryToken(User), useValue: { findOne: jest.fn() } },
+        { provide: getRepositoryToken(Section), useValue: { findOne: jest.fn() } },
+      ],
+    }).compile();
+
+    service = module.get<EnrollmentService>(EnrollmentService);
+  });
+
+  it('returns every enrollment for an ADMIN, unfiltered', async () => {
+    enrollmentRepository.find.mockResolvedValue(allEnrollments);
+
+    const result = await service.findAll({ id: 'admin-1', role: Role.ADMIN });
+
+    expect(enrollmentRepository.find).toHaveBeenCalledWith(undefined);
+    expect(result).toEqual(allEnrollments);
+  });
+
+  it('returns every enrollment when called with no requesting user (internal use)', async () => {
+    enrollmentRepository.find.mockResolvedValue(allEnrollments);
+
+    const result = await service.findAll();
+
+    expect(enrollmentRepository.find).toHaveBeenCalledWith(undefined);
+    expect(result).toEqual(allEnrollments);
+  });
+
+  it('scopes results to only the sections a TUTOR owns', async () => {
+    const ownEnrollments = [allEnrollments[0]];
+    enrollmentRepository.find.mockResolvedValue(ownEnrollments);
+
+    const result = await service.findAll({ id: 'tutor-own', role: Role.TUTOR });
+
+    expect(enrollmentRepository.find).toHaveBeenCalledWith({
+      where: { section: { tutor: { id: 'tutor-own' } } },
+    });
+    expect(result).toEqual(ownEnrollments);
+  });
+
+  it('returns an empty list for a TUTOR who owns no sections', async () => {
+    enrollmentRepository.find.mockResolvedValue([]);
+
+    const result = await service.findAll({ id: 'tutor-no-sections', role: Role.TUTOR });
+
+    expect(result).toEqual([]);
+  });
+});
+
 // Alumno sees own data only (spec: "tutor-scoping" domain).
 describe('EnrollmentService.findOneByUser — alumno own-data scoping', () => {
   let service: EnrollmentService;

@@ -13,10 +13,13 @@ import { SectionOwnershipGuard } from 'src/auth/guard/section-ownership.guard';
 export class EnrollmentController {
   constructor(private readonly enrollmentService: EnrollmentService) { }
 
+  // Role-Based Section Access: TUTOR is scoped to enrollments of their own
+  // sections at the service level here (no route :id to guard against for a
+  // list route) — mirrors the pattern used by SectionController.findAll.
   @Get()
   @Roles(Role.ADMIN, Role.TUTOR)
-  async findAll() {
-    return this.enrollmentService.findAll();
+  async findAll(@Req() request: Request) {
+    return this.enrollmentService.findAll(request.user as never);
   }
 
   // Por usuario. Alumno sees own data only (spec: "tutor-scoping" domain):

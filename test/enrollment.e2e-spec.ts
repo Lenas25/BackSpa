@@ -107,3 +107,78 @@ describe('GET /enrollment/course/:id (e2e) — tutor section-roster scoping', ()
       .expect(403);
   });
 });
+
+// Role-Based Section Access (spec: "tutor-scoping" domain) — GET /enrollment
+// (findAll) MUST NOT leak every section's roster to a TUTOR; only ADMIN gets
+// the unfiltered platform-wide list.
+describe('GET /enrollment (e2e) — findAll tutor scoping', () => {
+  let app: INestApplication;
+  let jwtService: JwtService;
+  const findAll = jest.fn();
+
+  const signToken = (payload: { id: string; role: Role }) => jwtService.sign(payload);
+  const bearer = (token: string) => `Bearer ${token}`;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [
+        JwtModule.register({ secret: TEST_JWT_SECRET, signOptions: { expiresIn: '1h' } }),
+      ],
+      controllers: [EnrollmentController],
+      providers: [
+        { provide: EnrollmentService, useValue: { findAll } },
+        { provide: getRepositoryToken(Section), useValue: { findOne: jest.fn() } },
+        AuthGuard,
+        RolesGuard,
+        SectionOwnershipGuard,
+      ],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+    jwtService = moduleFixture.get(JwtService);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    findAll.mockReset().mockResolvedValue([]);
+  });
+
+  it('allows an ADMIN to list every enrollment', async () => {
+    const token = signToken({ id: 'admin-1', role: Role.ADMIN });
+
+    await request(app.getHttpServer())
+      .get('/enrollment')
+      .set('Authorization', bearer(token))
+      .expect(200);
+
+    expect(findAll).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'admin-1', role: Role.ADMIN }),
+    );
+  });
+
+  it('allows a TUTOR to list enrollments, scoped by the service to their own sections', async () => {
+    const token = signToken({ id: 'tutor-1', role: Role.TUTOR });
+
+    await request(app.getHttpServer())
+      .get('/enrollment')
+      .set('Authorization', bearer(token))
+      .expect(200);
+
+    expect(findAll).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'tutor-1', role: Role.TUTOR }),
+    );
+  });
+
+  it('rejects an ALUMNO from listing enrollments', async () => {
+    const token = signToken({ id: 'student-1', role: Role.ALUMNO });
+
+    await request(app.getHttpServer())
+      .get('/enrollment')
+      .set('Authorization', bearer(token))
+      .expect(403);
+  });
+});
