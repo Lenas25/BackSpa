@@ -1,6 +1,7 @@
 import { Transform, Type } from "class-transformer";
 import { IsArray, IsISO8601, IsNumber, IsOptional, IsString, MinLength, ValidateNested } from "class-validator";
 import { CreateActivityDto } from "src/activity/dto/create-activity.dto";
+import { ActivitiesSumTo100 } from "src/common/validators/activities-sum-to-100.validator";
 
 
 export class CreateSectionDto {
@@ -25,6 +26,7 @@ export class CreateSectionDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateActivityDto)
+  @ActivitiesSumTo100()
   activities: CreateActivityDto[];
 
   @IsOptional()
