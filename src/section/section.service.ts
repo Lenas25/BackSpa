@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Activity } from 'src/activity/entities/activity.entity';
 import { User } from 'src/user/entities/user.entity';
 import { Course } from 'src/course/entities/course.entity';
+import type { CreateActivityDto } from 'src/activity/dto/create-activity.dto';
 
 @Injectable()
 export class SectionService {
@@ -79,7 +80,7 @@ export class SectionService {
       if (!section) {
         throw new Error('No se encontró la sección');
       }
-      const { activities: _activities, id_tutor, id_course, ...sectionData } = updateSectionDto;
+      const { activities, id_tutor, id_course, ...sectionData } = updateSectionDto;
       Object.assign(section, sectionData);
       if (id_tutor) {
         const tutor = await this.userRepository.findOne({ where: { id: id_tutor } });
@@ -96,9 +97,60 @@ export class SectionService {
         section.course = course;
       }
       await this.sectionRepository.save(section);
+
+      if (activities) {
+        await this.reconcileActivities(section, activities);
+      }
+
       return await this.sectionRepository.findOne({ where: { id }, relations: ['activities', 'tutor', 'course'] });
     } catch (error) {
       throw new Error(`Error actualizando la sección: ${error}`);
+    }
+  }
+
+  // Reconciles the section's activities against the incoming payload:
+  // - Entries with an existing `id` update that activity in place.
+  // - Entries without an `id` are created fresh (linked to this section).
+  // - Existing DB activities whose id is no longer present are removed;
+  //   their Grade rows cascade-delete at the DB level (FK ON DELETE CASCADE
+  //   on Grade.activity), per the "Activity Editing With Existing Grades"
+  //   spec requirement.
+  private async reconcileActivities(
+    section: Section,
+    activities: CreateActivityDto[],
+  ) {
+    const existingActivities = await this.activityRepository.find({
+      where: { section: { id: section.id } },
+    });
+
+    const incomingIds = new Set(
+      activities.filter((a) => a.id != null).map((a) => a.id),
+    );
+
+    const toRemove = existingActivities.filter((a) => !incomingIds.has(a.id));
+    if (toRemove.length > 0) {
+      await this.activityRepository.remove(toRemove);
+    }
+
+    for (const activityDto of activities) {
+      const existing =
+        activityDto.id != null
+          ? existingActivities.find((a) => a.id === activityDto.id)
+          : undefined;
+
+      if (existing) {
+        existing.name = activityDto.name;
+        existing.percentage = activityDto.percentage;
+        await this.activityRepository.save(existing);
+        continue;
+      }
+
+      const newActivity = this.activityRepository.create({
+        name: activityDto.name,
+        percentage: activityDto.percentage,
+        section,
+      });
+      await this.activityRepository.save(newActivity);
     }
   }
 

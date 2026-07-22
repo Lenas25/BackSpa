@@ -10,7 +10,7 @@ describe('SectionService', () => {
   let service: SectionService;
   let sectionRepository: { create: jest.Mock; save: jest.Mock; find: jest.Mock; findOne: jest.Mock; delete: jest.Mock };
   let courseRepository: { findOne: jest.Mock };
-  let activityRepository: { create: jest.Mock; save: jest.Mock; find: jest.Mock };
+  let activityRepository: { create: jest.Mock; save: jest.Mock; find: jest.Mock; remove: jest.Mock };
   let userRepository: { findOne: jest.Mock };
 
   beforeEach(async () => {
@@ -22,7 +22,7 @@ describe('SectionService', () => {
       delete: jest.fn(),
     };
     courseRepository = { findOne: jest.fn() };
-    activityRepository = { create: jest.fn(), save: jest.fn(), find: jest.fn() };
+    activityRepository = { create: jest.fn(), save: jest.fn(), find: jest.fn(), remove: jest.fn() };
     userRepository = { findOne: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -104,6 +104,63 @@ describe('SectionService', () => {
         relations: ['activities', 'tutor', 'course'],
       });
       expect(result).toEqual(section);
+    });
+  });
+
+  describe('update — activity diffing', () => {
+    const existingSection = { id: 1, name: 'Cohorte Enero' };
+
+    beforeEach(() => {
+      sectionRepository.findOne.mockResolvedValue({ ...existingSection });
+      sectionRepository.save.mockResolvedValue(existingSection);
+    });
+
+    it('updates the percentage of an existing activity matched by id', async () => {
+      const existingActivity = { id: 10, name: 'Parcial 1', percentage: 50 };
+      activityRepository.find.mockResolvedValue([existingActivity]);
+      activityRepository.save.mockResolvedValue({ ...existingActivity, percentage: 60 });
+
+      await service.update(1, {
+        activities: [{ id: 10, name: 'Parcial 1', percentage: 60 }],
+      } as never);
+
+      expect(activityRepository.find).toHaveBeenCalledWith({ where: { section: { id: 1 } } });
+      expect(activityRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 10, name: 'Parcial 1', percentage: 60 }),
+      );
+    });
+
+    it('creates a new activity when no id is present in the incoming payload', async () => {
+      activityRepository.find.mockResolvedValue([]);
+      const created = { name: 'Parcial 2', percentage: 40 };
+      activityRepository.create.mockReturnValue(created);
+      activityRepository.save.mockResolvedValue({ id: 20, ...created });
+
+      await service.update(1, {
+        activities: [{ name: 'Parcial 2', percentage: 40 }],
+      } as never);
+
+      expect(activityRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Parcial 2', percentage: 40 }),
+      );
+      expect(activityRepository.save).toHaveBeenCalledWith(created);
+    });
+
+    it('removes activities that exist in the DB but are absent from the incoming payload', async () => {
+      const staleActivity = { id: 11, name: 'Parcial viejo', percentage: 100 };
+      activityRepository.find.mockResolvedValue([staleActivity]);
+
+      await service.update(1, { activities: [] } as never);
+
+      expect(activityRepository.remove).toHaveBeenCalledWith([staleActivity]);
+    });
+
+    it('does not touch activities when the update payload omits the field entirely', async () => {
+      await service.update(1, { name: 'Cohorte Renombrada' } as never);
+
+      expect(activityRepository.find).not.toHaveBeenCalled();
+      expect(activityRepository.save).not.toHaveBeenCalled();
+      expect(activityRepository.remove).not.toHaveBeenCalled();
     });
   });
 
