@@ -187,6 +187,47 @@ describe('SectionService', () => {
       expect(activityRepository.save).not.toHaveBeenCalled();
       expect(activityRepository.remove).not.toHaveBeenCalled();
     });
+
+    // Regression guard for the reported bug "edited a section's activities
+    // (changed one %, added a new one), saved, but GET still returns old
+    // activities" — reproduces the exact combined scenario (one update + one
+    // create + one implicit keep, in a SINGLE payload) that prior tests only
+    // covered as isolated single-op cases.
+    it('applies an update, a create, and a removal together from a single combined payload', async () => {
+      const keptActivity = { id: 10, name: 'Parcial 1', percentage: 50 };
+      const changedActivity = { id: 11, name: 'Parcial 2', percentage: 50 };
+      const staleActivity = { id: 12, name: 'Parcial viejo', percentage: 0 };
+      activityRepository.find.mockResolvedValue([keptActivity, changedActivity, staleActivity]);
+      activityRepository.save.mockImplementation((activity) => Promise.resolve(activity));
+      const newCreated = { name: 'Parcial nuevo', percentage: 20 };
+      activityRepository.create.mockReturnValue(newCreated);
+
+      await service.update(1, {
+        activities: [
+          { id: 10, name: 'Parcial 1', percentage: 50 },
+          { id: 11, name: 'Parcial 2', percentage: 30 },
+          { name: 'Parcial nuevo', percentage: 20 },
+        ],
+      } as never);
+
+      // changed activity (id 11) persisted with its new percentage
+      expect(activityRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 11, name: 'Parcial 2', percentage: 30 }),
+      );
+      // unchanged activity (id 10) is still round-tripped through save (no
+      // special-case skip — matches existing reconcileActivities behavior)
+      expect(activityRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 10, name: 'Parcial 1', percentage: 50 }),
+      );
+      // brand-new activity (no id) is created and saved
+      expect(activityRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Parcial nuevo', percentage: 20 }),
+      );
+      expect(activityRepository.save).toHaveBeenCalledWith(newCreated);
+      // activity absent from the incoming payload (id 12) is removed, its
+      // grades cascade-delete at the DB FK level
+      expect(activityRepository.remove).toHaveBeenCalledWith([staleActivity]);
+    });
   });
 
   describe('remove', () => {
