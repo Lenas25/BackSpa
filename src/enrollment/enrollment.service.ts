@@ -53,7 +53,7 @@ export class EnrollmentService {
             id: user.id
           }
         },
-        relations: ['section', 'user']
+        relations: ['section', 'user', 'section.course']
       });
       if (!enrollment) {
         throw new NotFoundException('Matrícula no encontrada');

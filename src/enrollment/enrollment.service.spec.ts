@@ -201,4 +201,19 @@ describe('EnrollmentService.findOneByUser — alumno own-data scoping', () => {
       service.findOneByUser('student-2', { id: 'admin-1', role: Role.ADMIN }),
     ).resolves.toBeDefined();
   });
+
+  // Bug fix (E2E manual verification): the alumno panel renders the parent
+  // course via enrollment -> section -> course, but findOneByUser only
+  // loaded the 'section' relation (not the nested 'section.course'), so
+  // TypeORM returned enrollment.section.course as undefined and the panel
+  // rendered a blank course name/description/image for every student.
+  it('loads the nested section.course relation so the alumno panel can render the parent course', async () => {
+    await service.findOneByUser('student-1', { id: 'student-1', role: Role.ALUMNO });
+
+    expect(enrollmentRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        relations: expect.arrayContaining(['section', 'user', 'section.course']),
+      }),
+    );
+  });
 });
