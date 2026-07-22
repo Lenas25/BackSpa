@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { UpdateGradeDto } from './dto/update-grade.dto';
 import { Grade } from './entities/grade.entity';
 import { Repository } from 'typeorm';
@@ -6,6 +6,8 @@ import { Activity } from 'src/activity/entities/activity.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
 import { Section } from 'src/section/entities/section.entity';
+import { Role } from 'src/common/enums/role.enum';
+import type { RequestingUser } from 'src/section/section.service';
 
 @Injectable()
 export class GradeService {
@@ -23,30 +25,62 @@ export class GradeService {
   ) { }
 
 
-  async findOne(id: number) {
+  // Role-Based Section Access (spec: "tutor-scoping" domain) — TUTOR is
+  // limited to grades of their own Sections. `id` here is an activity id, so
+  // ownership requires a join through the activity's section.
+  async findOne(id: number, requestingUser?: RequestingUser) {
     try {
       const activity = await this.activityRepository.findOne({
         where: {
           id,
         },
+        relations: ['section', 'section.tutor'],
       });
       if (!activity) {
         throw new BadRequestException("La actividad no existe");
       }
-  
+
+      this.assertSectionOwnership(activity.section, requestingUser);
+
       const grades = await this.gradeRepository.find({
         where: {
           id_activity: id,
         },
         relations: ['enrollment'],
       });
-  
+
       const activeGrades = grades.filter(grade => grade.enrollment.active);
-  
+
       return activeGrades;
     } catch (e) {
+      if (e instanceof ForbiddenException) throw e;
       throw new BadRequestException(e.message);
     }
+  }
+
+  // TUTOR may only read grades/students of Sections they are assigned to;
+  // ADMIN (or callers with no user context, e.g. internal use) are
+  // unrestricted.
+  private assertSectionOwnership(section: Section | undefined, requestingUser?: RequestingUser) {
+    if (!requestingUser || requestingUser.role !== Role.TUTOR) {
+      return;
+    }
+    if (!section?.tutor || section.tutor.id !== requestingUser.id) {
+      throw new ForbiddenException('No tiene acceso a los datos de esta sección');
+    }
+  }
+
+  // Enrollment-keyed reads add one more case on top of assertSectionOwnership:
+  // Alumno sees own data only (spec: "tutor-scoping" domain) — an ALUMNO may
+  // only read grades for an enrollment that is actually theirs.
+  private assertEnrollmentOwnership(enrollment: Enrollment, requestingUser?: RequestingUser) {
+    if (requestingUser?.role === Role.ALUMNO) {
+      if (enrollment.user?.id !== requestingUser.id) {
+        throw new ForbiddenException('No tiene acceso a los datos de esta matrícula');
+      }
+      return;
+    }
+    this.assertSectionOwnership(enrollment.section, requestingUser);
   }
 
   async update(sectionId: number, updateGradeDto: UpdateGradeDto) {
@@ -200,16 +234,20 @@ export class GradeService {
   }
 
 
-  async findByEnrollment(id: number) {
+  async findByEnrollment(id: number, requestingUser?: RequestingUser) {
     try {
       const enrollment = await this.enrollmentRepository.findOne({
         where: {
           id
-        }
+        },
+        relations: ['section', 'section.tutor'],
       });
       if (!enrollment) {
         throw new BadRequestException("La matricula no existe");
       }
+
+      this.assertEnrollmentOwnership(enrollment, requestingUser);
+
       return await this.gradeRepository.find({
         where: {
           enrollment:{
@@ -219,6 +257,7 @@ export class GradeService {
         relations: ['activity']
       });
     } catch (e) {
+      if (e instanceof ForbiddenException) throw e;
       throw new BadRequestException(e.message);
     }
   }

@@ -1,51 +1,65 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Req, Res, UseGuards, HttpException } from '@nestjs/common';
 import { GradeService } from './grade.service';
 import { UpdateGradeDto } from './dto/update-grade.dto';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { Role } from 'src/common/enums/role.enum';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RolesGuard } from 'src/auth/guard/roles.guard';
 import { AuthGuard } from 'src/auth/guard/auth.guard';
+import { SectionOwnershipGuard } from 'src/auth/guard/section-ownership.guard';
 
 @Controller('grade')
 @UseGuards(AuthGuard, RolesGuard)
 export class GradeController {
   constructor(private readonly gradeService: GradeService) { }
 
+  // Roster-style read (all students' grades for one activity) — restricted
+  // to ADMIN/TUTOR. An alumno's own-data path is
+  // EnrollmentService.findOneByUser, not this endpoint.
   @Get(':id')
-  async findOne(@Param('id') id: number, @Res() response: Response): Promise<Response> {
+  @Roles(Role.ADMIN, Role.TUTOR)
+  async findOne(@Param('id') id: number, @Req() request: Request, @Res() response: Response): Promise<Response> {
     try {
-      const grade = await this.gradeService.findOne(id);
+      const grade = await this.gradeService.findOne(id, request.user as never);
       return response.status(200).json({
         message: "Actividad encontrada",
         data: grade
       })
     } catch (e) {
-      return response.status(400).json({
+      const status = e instanceof HttpException ? e.getStatus() : 400;
+      return response.status(status).json({
         message: "Error al buscar la actividad",
         error: e.message
       });
     }
   }
 
+  // No @Roles restriction: ALUMNO uses this to fetch their OWN grades (see
+  // GradeService.findByEnrollment's ownership check — an alumno may only
+  // read grades for an enrollment that is actually theirs).
   @Get('/enrollment/:idEnrollment')
-  async findByEnrollment(@Param('idEnrollment') idEnrollment: number, @Res() response: Response): Promise<Response> {
+  async findByEnrollment(@Param('idEnrollment') idEnrollment: number, @Req() request: Request, @Res() response: Response): Promise<Response> {
     try {
-      const grade = await this.gradeService.findByEnrollment(idEnrollment);
+      const grade = await this.gradeService.findByEnrollment(idEnrollment, request.user as never);
       return response.status(200).json({
         message: "Matrícula encontrada",
         data: grade
       })
     } catch (e) {
-      return response.status(400).json({
+      const status = e instanceof HttpException ? e.getStatus() : 400;
+      return response.status(status).json({
         message: "Error al buscar la matrícula",
         error: e.message
       });
     }
   }
 
+  // Tutor Grade Registration Scope (spec: "tutor-scoping" domain): `id` here
+  // IS the section id (see GradeService.update(sectionId, ...)), so the same
+  // SectionOwnershipGuard used for /section/:id applies directly.
   @Patch(':id')
   @Roles(Role.ADMIN, Role.TUTOR)
+  @UseGuards(SectionOwnershipGuard)
   async update(@Param('id') id: number, @Body() updateGradeDto: UpdateGradeDto, @Res() response: Response): Promise<Response> {
     try {
       const grade = await this.gradeService.update(id, updateGradeDto);
