@@ -1,7 +1,6 @@
 import { Transform, Type } from "class-transformer";
 import { IsArray, IsISO8601, IsNumber, IsOptional, IsString, MinLength, ValidateNested } from "class-validator";
 import { CreateActivityDto } from "src/activity/dto/create-activity.dto";
-import { ActivitiesSumTo100 } from "src/common/validators/activities-sum-to-100.validator";
 
 
 export class CreateSectionDto {
@@ -23,10 +22,15 @@ export class CreateSectionDto {
   @IsNumber()
   installmentsCount?: number;
 
+  // Activity Percentage Validation (spec: "section-management" domain,
+  // user-approved change 2026-07-22) — the sum of activity percentages is no
+  // longer required to equal 100 server-side; it's an indicator-only value
+  // (client shows a warning above 100%, never blocks the save). Per-activity
+  // bounds (CreateActivityDto: percentage > 0 and <= 100, name required)
+  // remain enforced via @ValidateNested.
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateActivityDto)
-  @ActivitiesSumTo100()
   activities: CreateActivityDto[];
 
   @IsOptional()
