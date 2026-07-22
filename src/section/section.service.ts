@@ -8,6 +8,14 @@ import { Activity } from 'src/activity/entities/activity.entity';
 import { User } from 'src/user/entities/user.entity';
 import { Course } from 'src/course/entities/course.entity';
 import type { CreateActivityDto } from 'src/activity/dto/create-activity.dto';
+import { Role } from 'src/common/enums/role.enum';
+
+// JWT payload shape attached to the request by AuthGuard (see auth.service's
+// login() payload: { role, id }).
+export interface RequestingUser {
+  id: string;
+  role: Role;
+}
 
 @Injectable()
 export class SectionService {
@@ -57,7 +65,16 @@ export class SectionService {
     }
   }
 
-  async findAll() {
+  // Role-Based Section Access (spec: "tutor-scoping" domain) — TUTOR is
+  // limited to their own sections when listing; ADMIN (or callers with no
+  // user context, e.g. internal use) see every section.
+  async findAll(requestingUser?: RequestingUser) {
+    if (requestingUser?.role === Role.TUTOR) {
+      return await this.sectionRepository.find({
+        where: { tutor: { id: requestingUser.id } },
+        relations: ['activities', 'tutor', 'course'],
+      });
+    }
     return await this.sectionRepository.find({ relations: ['activities', 'tutor', 'course'] });
   }
 

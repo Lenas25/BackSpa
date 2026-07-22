@@ -20,6 +20,13 @@ jest.mock('src/auth/guard/roles.guard', () => ({
     }
   },
 }));
+jest.mock('src/auth/guard/section-ownership.guard', () => ({
+  SectionOwnershipGuard: class SectionOwnershipGuard {
+    canActivate() {
+      return true;
+    }
+  },
+}));
 
 // eslint-disable-next-line import/first
 import { SectionController } from './section.controller';
@@ -51,13 +58,30 @@ describe('SectionController', () => {
     const json = jest.fn();
     const status = jest.fn().mockReturnValue({ json });
     const response = { status } as never;
+    const request = { user: { id: 'tutor-1', role: 'tutor' } } as never;
 
-    await controller.findAll(response);
+    await controller.findAll(request, response);
 
     expect(status).toHaveBeenCalledWith(200);
     expect(json).toHaveBeenCalledWith({
       message: 'Secciones obtenidas correctamente',
       data: sections,
     });
+  });
+
+  // Role-Based Section Access (spec: "tutor-scoping" domain) — the
+  // requesting user's identity must be forwarded to the service so it can
+  // scope the list to the TUTOR's own sections.
+  it('forwards the requesting user to SectionService.findAll for ownership scoping', async () => {
+    service.findAll.mockResolvedValue([]);
+    const json = jest.fn();
+    const status = jest.fn().mockReturnValue({ json });
+    const response = { status } as never;
+    const user = { id: 'tutor-1', role: 'tutor' };
+    const request = { user } as never;
+
+    await controller.findAll(request, response);
+
+    expect(service.findAll).toHaveBeenCalledWith(user);
   });
 });

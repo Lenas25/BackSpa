@@ -5,6 +5,7 @@ import { Section } from './entities/section.entity';
 import { Course } from 'src/course/entities/course.entity';
 import { Activity } from 'src/activity/entities/activity.entity';
 import { User } from 'src/user/entities/user.entity';
+import { Role } from 'src/common/enums/role.enum';
 
 describe('SectionService', () => {
   let service: SectionService;
@@ -81,7 +82,7 @@ describe('SectionService', () => {
   });
 
   describe('findAll', () => {
-    it('returns every section with its activities and tutor', async () => {
+    it('returns every section with its activities and tutor when called with no user context (e.g. ADMIN)', async () => {
       const sections = [{ id: 1, name: 'Cohorte Enero' }, { id: 2, name: 'Cohorte Julio' }];
       sectionRepository.find.mockResolvedValue(sections);
 
@@ -89,6 +90,30 @@ describe('SectionService', () => {
 
       expect(sectionRepository.find).toHaveBeenCalledWith({ relations: ['activities', 'tutor', 'course'] });
       expect(result).toEqual(sections);
+    });
+
+    it('returns every section for an ADMIN requesting user', async () => {
+      const sections = [{ id: 1, name: 'Cohorte Enero' }];
+      sectionRepository.find.mockResolvedValue(sections);
+
+      await service.findAll({ id: 'admin-1', role: Role.ADMIN });
+
+      expect(sectionRepository.find).toHaveBeenCalledWith({ relations: ['activities', 'tutor', 'course'] });
+    });
+
+    // Role-Based Section Access (spec: "tutor-scoping" domain) — TUTOR is
+    // limited to their own sections when listing.
+    it('filters to only the requesting TUTOR\'s own sections', async () => {
+      const ownSections = [{ id: 1, name: 'Cohorte Enero', tutor: { id: 'tutor-1' } }];
+      sectionRepository.find.mockResolvedValue(ownSections);
+
+      const result = await service.findAll({ id: 'tutor-1', role: Role.TUTOR });
+
+      expect(sectionRepository.find).toHaveBeenCalledWith({
+        where: { tutor: { id: 'tutor-1' } },
+        relations: ['activities', 'tutor', 'course'],
+      });
+      expect(result).toEqual(ownSections);
     });
   });
 
