@@ -36,12 +36,13 @@ export class EnrollmentController {
     }
   }
 
-  // Por curso
+  // Por sección (route path kept as `/course/:id` — public API contract,
+  // still referenced by the frontend as `courseId`)
   @Get('/course/:id')
   @UseGuards(AuthGuard)
-  async findOneByCourse(@Param('id') id: number, @Res() response: Response): Promise<Response> {
+  async findOneBySection(@Param('id') id: number, @Res() response: Response): Promise<Response> {
     try {
-      const enrollment = await this.enrollmentService.findOneByCourse(id);
+      const enrollment = await this.enrollmentService.findOneBySection(id);
       return response.status(201).json({
         message: "Asignación encontrada",
         data: enrollment,
@@ -74,9 +75,9 @@ export class EnrollmentController {
 
   @Patch('/finish/:id')
   @Roles(Role.ADMIN)
-  async finishCourse(@Param('id') id:number, @Res() response: Response): Promise<Response> {
+  async finishSection(@Param('id') id:number, @Res() response: Response): Promise<Response> {
     try {
-      const enrollmentFinished = await this.enrollmentService.finishCourse(id);
+      const enrollmentFinished = await this.enrollmentService.finishSection(id);
       return response.status(200).json({
         message: "Curso finalizado",
         data: enrollmentFinished,

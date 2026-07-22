@@ -48,7 +48,7 @@ export class EnrollmentService {
     }
   }
 
-  async findOneByCourse(id: number) {
+  async findOneBySection(id: number) {
     try {
       const section = await this.sectionRepository.findOne({
         where: {
@@ -147,7 +147,7 @@ export class EnrollmentService {
   }
 
 
-  async finishCourse(id: number) {
+  async finishSection(id: number) {
     try {
       const section = await this.sectionRepository.findOne({
         where: {
