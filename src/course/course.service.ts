@@ -23,8 +23,11 @@ export class CourseService {
     }
   }
 
+  // Public catalog endpoint: MUST only expose Course fields (name,
+  // description, image) — never Section internals (dates, tutor,
+  // activities). Do NOT load the `sections` relation here.
   async findAll() {
-    return await this.courseRepository.find({ relations: ['sections'] });
+    return await this.courseRepository.find();
   }
 
   async findOne(id: number) {
@@ -33,7 +36,6 @@ export class CourseService {
         where: {
           id,
         },
-        relations: ['sections'],
       });
     } catch (error) {
       throw new Error(error.message);

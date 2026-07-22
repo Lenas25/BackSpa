@@ -46,25 +46,32 @@ describe('CourseService', () => {
   });
 
   describe('findAll', () => {
-    it('returns every parent course with its sections', async () => {
-      const courses = [{ id: 1, name: 'Full Stack' }, { id: 2, name: 'Data' }];
+    it('returns every parent course without loading Section internals', async () => {
+      const courses = [
+        { id: 1, name: 'Full Stack', description: 'desc', imageUrl: 'img.png' },
+        { id: 2, name: 'Data', description: 'desc2', imageUrl: 'img2.png' },
+      ];
       courseRepository.find.mockResolvedValue(courses);
 
       const result = await service.findAll();
 
-      expect(courseRepository.find).toHaveBeenCalledWith({ relations: ['sections'] });
+      // Public catalog endpoint MUST NOT expose Section internals
+      // (dates, tutor, activities) — see spec's "Public Catalog Endpoint"
+      // requirement. Loading the `sections` relation here previously leaked
+      // that data straight through the unauthenticated GET /course response.
+      expect(courseRepository.find).toHaveBeenCalledWith();
       expect(result).toEqual(courses);
     });
   });
 
   describe('findOne', () => {
-    it('returns the requested course by id', async () => {
-      const course = { id: 1, name: 'Full Stack' };
+    it('returns the requested course by id without loading Section internals', async () => {
+      const course = { id: 1, name: 'Full Stack', description: 'desc', imageUrl: 'img.png' };
       courseRepository.findOne.mockResolvedValue(course);
 
       const result = await service.findOne(1);
 
-      expect(courseRepository.findOne).toHaveBeenCalledWith({ where: { id: 1 }, relations: ['sections'] });
+      expect(courseRepository.findOne).toHaveBeenCalledWith({ where: { id: 1 } });
       expect(result).toEqual(course);
     });
   });
