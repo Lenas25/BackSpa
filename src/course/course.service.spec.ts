@@ -1,11 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConflictException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { CourseService } from './course.service';
 import { Course } from './entities/course.entity';
+import { Section } from 'src/section/entities/section.entity';
 
 describe('CourseService', () => {
   let service: CourseService;
   let courseRepository: { create: jest.Mock; save: jest.Mock; find: jest.Mock; findOne: jest.Mock; delete: jest.Mock };
+  let sectionRepository: { count: jest.Mock };
 
   beforeEach(async () => {
     courseRepository = {
@@ -15,11 +18,13 @@ describe('CourseService', () => {
       findOne: jest.fn(),
       delete: jest.fn(),
     };
+    sectionRepository = { count: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CourseService,
         { provide: getRepositoryToken(Course), useValue: courseRepository },
+        { provide: getRepositoryToken(Section), useValue: sectionRepository },
       ],
     }).compile();
 
@@ -77,19 +82,29 @@ describe('CourseService', () => {
   });
 
   describe('remove', () => {
-    it('deletes an existing catalog course', async () => {
+    it('deletes an existing catalog course that has no sections', async () => {
+      sectionRepository.count.mockResolvedValue(0);
       courseRepository.delete.mockResolvedValue({ affected: 1 });
 
       const result = await service.remove(1);
 
+      expect(sectionRepository.count).toHaveBeenCalledWith({ where: { course: { id: 1 } } });
       expect(courseRepository.delete).toHaveBeenCalledWith(1);
       expect(result.affected).toBe(1);
     });
 
     it('throws when the course does not exist', async () => {
+      sectionRepository.count.mockResolvedValue(0);
       courseRepository.delete.mockResolvedValue({ affected: 0 });
 
       await expect(service.remove(999)).rejects.toThrow();
+    });
+
+    it('rejects with a 409 ConflictException when the course still has sections', async () => {
+      sectionRepository.count.mockResolvedValue(2);
+
+      await expect(service.remove(1)).rejects.toThrow(ConflictException);
+      expect(courseRepository.delete).not.toHaveBeenCalled();
     });
   });
 });

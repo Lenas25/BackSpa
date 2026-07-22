@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { ConflictException, INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 
 // CourseController statically imports AuthGuard/RolesGuard for its ADMIN-only
@@ -80,5 +80,40 @@ describe('GET /course (e2e)', () => {
     findAll.mockResolvedValue([]);
 
     await request(app.getHttpServer()).get('/course').expect(200);
+  });
+});
+
+describe('DELETE /course/:id (e2e) — Course Deletion Guard', () => {
+  let app: INestApplication;
+  const remove = jest.fn();
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      controllers: [CourseController],
+      providers: [{ provide: CourseService, useValue: { remove } }],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('returns 409 when the course still has sections', async () => {
+    remove.mockRejectedValue(
+      new ConflictException('No se puede eliminar el curso porque tiene secciones asociadas'),
+    );
+
+    const response = await request(app.getHttpServer()).delete('/course/1').expect(409);
+
+    expect(response.body.error).toContain('secciones');
+  });
+
+  it('returns 200 when the course has no sections', async () => {
+    remove.mockResolvedValue({ affected: 1 });
+
+    await request(app.getHttpServer()).delete('/course/1').expect(200);
   });
 });

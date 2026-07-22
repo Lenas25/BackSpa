@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Res, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
 import { CourseService } from './course.service';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { UpdateCourseDto } from './dto/update-course.dto';
@@ -85,7 +85,10 @@ export class CourseController {
         data: courseDeleted,
       });
     } catch (e) {
-      return response.status(400).json({
+      // Forward the real status for known HTTP exceptions (e.g. the 409
+      // Course Deletion Guard) instead of collapsing every failure to 400.
+      const status = e instanceof HttpException ? e.getStatus() : HttpStatus.BAD_REQUEST;
+      return response.status(status).json({
         message: "Error al eliminar el curso",
         error: e.message,
       });

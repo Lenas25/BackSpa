@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import type { CreateCourseDto } from './dto/create-course.dto';
 import type { UpdateCourseDto } from './dto/update-course.dto';
 import { Course } from './entities/course.entity';
+import { Section } from 'src/section/entities/section.entity';
 import type { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -11,6 +12,8 @@ export class CourseService {
   constructor(
     @InjectRepository(Course)
     private courseRepository: Repository<Course>,
+    @InjectRepository(Section)
+    private sectionRepository: Repository<Section>,
   ) { }
 
   async create(createCourseDto: CreateCourseDto) {
@@ -56,7 +59,17 @@ export class CourseService {
     }
   }
 
+  // Course Deletion Guard: a parent Course with one or more Sections MUST
+  // NOT be deletable. Checked BEFORE the try/catch below so the 409 status
+  // is not swallowed and rewrapped as a generic error.
   async remove(id: number) {
+    const sectionsCount = await this.sectionRepository.count({ where: { course: { id } } });
+    if (sectionsCount > 0) {
+      throw new ConflictException(
+        'No se puede eliminar el curso porque tiene secciones asociadas',
+      );
+    }
+
     try {
       const detail = await this.courseRepository.delete(id);
       if (detail.affected === 0) {
