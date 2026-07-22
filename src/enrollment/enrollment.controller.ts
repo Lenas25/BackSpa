@@ -1,11 +1,12 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Req, Res, UseGuards, HttpException } from '@nestjs/common';
 import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
 import { EnrollmentService } from './enrollment.service';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { Role } from 'src/common/enums/role.enum';
 import { AuthGuard } from 'src/auth/guard/auth.guard';
 import { RolesGuard } from 'src/auth/guard/roles.guard';
+import { SectionOwnershipGuard } from 'src/auth/guard/section-ownership.guard';
 
 @Controller('enrollment')
 @UseGuards(AuthGuard, RolesGuard)
@@ -18,18 +19,21 @@ export class EnrollmentController {
     return this.enrollmentService.findAll();
   }
 
-  // Por usuario
+  // Por usuario. Alumno sees own data only (spec: "tutor-scoping" domain):
+  // EnrollmentService.findOneByUser rejects an ALUMNO requesting an id that
+  // isn't their own.
   @Get(':id')
   @UseGuards(AuthGuard)
-  async findOneByUser(@Param('id') id: string, @Res() response: Response): Promise<Response> {
+  async findOneByUser(@Param('id') id: string, @Req() request: Request, @Res() response: Response): Promise<Response> {
     try {
-      const enrollment = await this.enrollmentService.findOneByUser(id);
+      const enrollment = await this.enrollmentService.findOneByUser(id, request.user as never);
       return response.status(201).json({
         message: "Asignación encontrada",
         data: enrollment,
       });
     } catch (error) {
-      return response.status(400).json({
+      const status = error instanceof HttpException ? error.getStatus() : 400;
+      return response.status(status).json({
         message: "Error al obtener asignaciones basadas en usuarios",
         error: error.message,
       });
@@ -37,9 +41,11 @@ export class EnrollmentController {
   }
 
   // Por sección (route path kept as `/course/:id` — public API contract,
-  // still referenced by the frontend as `courseId`)
+  // still referenced by the frontend as `courseId`). `id` here IS the
+  // section id, so SectionOwnershipGuard applies directly: a TUTOR may only
+  // read the roster of their own sections.
   @Get('/course/:id')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, SectionOwnershipGuard)
   async findOneBySection(@Param('id') id: number, @Res() response: Response): Promise<Response> {
     try {
       const enrollment = await this.enrollmentService.findOneBySection(id);

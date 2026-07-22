@@ -1,9 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { EnrollmentService } from './enrollment.service';
 import { Enrollment } from './entities/enrollment.entity';
 import { User } from 'src/user/entities/user.entity';
 import { Section } from 'src/section/entities/section.entity';
+import { Role } from 'src/common/enums/role.enum';
 
 // Duplicate Enrollment Rejection / Multi-Section Enrollment (spec:
 // "section-enrollment" domain) — a student MAY be enrolled in multiple
@@ -89,5 +91,48 @@ describe('EnrollmentService — duplicate enrollment rules', () => {
     expect(enrollmentRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({ user: studentA, section: otherSection }),
     );
+  });
+});
+
+// Alumno sees own data only (spec: "tutor-scoping" domain).
+describe('EnrollmentService.findOneByUser — alumno own-data scoping', () => {
+  let service: EnrollmentService;
+  let enrollmentRepository: { find: jest.Mock };
+  let userRepository: { findOne: jest.Mock };
+
+  beforeEach(async () => {
+    enrollmentRepository = { find: jest.fn() };
+    userRepository = { findOne: jest.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        EnrollmentService,
+        { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
+        { provide: getRepositoryToken(User), useValue: userRepository },
+        { provide: getRepositoryToken(Section), useValue: { findOne: jest.fn() } },
+      ],
+    }).compile();
+
+    service = module.get<EnrollmentService>(EnrollmentService);
+    userRepository.findOne.mockResolvedValue({ id: 'student-1' });
+    enrollmentRepository.find.mockResolvedValue([]);
+  });
+
+  it('allows an ALUMNO to fetch their own enrollments', async () => {
+    await expect(
+      service.findOneByUser('student-1', { id: 'student-1', role: Role.ALUMNO }),
+    ).resolves.toBeDefined();
+  });
+
+  it('denies an ALUMNO fetching another user\'s enrollments', async () => {
+    await expect(
+      service.findOneByUser('student-2', { id: 'student-1', role: Role.ALUMNO }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('allows an ADMIN to fetch any user\'s enrollments', async () => {
+    await expect(
+      service.findOneByUser('student-2', { id: 'admin-1', role: Role.ADMIN }),
+    ).resolves.toBeDefined();
   });
 });

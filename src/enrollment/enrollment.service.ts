@@ -1,10 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException, Res } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Res } from '@nestjs/common';
 import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
 import { Section } from 'src/section/entities/section.entity';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { User } from 'src/user/entities/user.entity';
 import { Enrollment } from './entities/enrollment.entity';
+import { Role } from 'src/common/enums/role.enum';
+import type { RequestingUser } from 'src/section/section.service';
 
 @Injectable()
 export class EnrollmentService {
@@ -21,7 +23,13 @@ export class EnrollmentService {
     return await this.enrollmentRepository.find();
   }
 
-  async findOneByUser(id: string) {
+  // Alumno sees own data only (spec: "tutor-scoping" domain) — an ALUMNO
+  // may only fetch their own enrollments, never another student's.
+  async findOneByUser(id: string, requestingUser?: RequestingUser) {
+    if (requestingUser?.role === Role.ALUMNO && requestingUser.id !== id) {
+      throw new ForbiddenException('No tiene acceso a los datos de este usuario');
+    }
+
     try {
       const user = await this.userRepository.findOne({
         where: {
