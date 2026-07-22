@@ -24,6 +24,9 @@ existing populated database.
    `CourseSectionSplit1737504000000` then runs and no-ops every step, since
    the schema it would have produced already exists (its guards detect this
    and skip each DDL statement — see the migration's own comments).
+   `WidenActivityPercentagePrecision1737504100000` then runs and no-ops on a
+   fresh install (InitialSchema already creates `activity.percentage` at the
+   correct `numeric(5,2)` precision).
 3. Boot the app — `synchronize: false`, no auto-sync will run.
 4. Smoke test: confirm the app starts and `GET /course` returns `200` with
    an empty array (no seed data yet).
@@ -144,6 +147,17 @@ un-split with no error raised. Fixed by having `InitialSchema` detect
 "`course` exists, `section` does not" as a legacy layout and no-op entirely
 (both `up()` and `down()`), deferring the real transformation to
 `CourseSectionSplit`.
+
+Local validation during PR2 (business rules + guards) surfaced a second
+bug: `activity.percentage` was `numeric(4,2)` (max storable value 99.99),
+so a Section with a single activity weighted at exactly 100% — a fully
+valid case under the "activities MUST sum to exactly 100%" rule — could
+never actually be persisted; the INSERT would fail with a Postgres
+"numeric field overflow" error. Fixed via
+`WidenActivityPercentagePrecision1737504100000`, widening the column to
+`numeric(5,2)`. Verified against the real local Postgres instance: a
+100.00 activity now persists, and deleting it still correctly
+cascade-deletes only its own `grade` rows (enrollment untouched).
 
 ## Rollback
 

@@ -141,7 +141,7 @@ export class InitialSchema1700000000000 implements MigrationInterface {
         CREATE TABLE "activity" (
           "id" SERIAL PRIMARY KEY,
           "name" character varying(100) NOT NULL,
-          "percentage" decimal(4,2),
+          "percentage" decimal(5,2),
           "id_course" integer,
           CONSTRAINT "FK_activity_section" FOREIGN KEY ("id_course")
             REFERENCES "section"("id") ON DELETE CASCADE ON UPDATE CASCADE

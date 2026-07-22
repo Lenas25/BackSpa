@@ -9,7 +9,11 @@ export class Activity {
   id: number;
   @Column({ type: 'varchar', length: 100, nullable: false })
   name: string;
-  @Column({ type: 'decimal', nullable: true, precision: 4, scale: 2 })
+  // precision 5 (not 4): numeric(4,2) tops out at 99.99, which cannot store
+  // a single activity weighted at exactly 100% — a valid case per the
+  // "Activity Percentage Validation" spec requirement. See migration
+  // WidenActivityPercentagePrecision1737504100000.
+  @Column({ type: 'decimal', nullable: true, precision: 5, scale: 2 })
   percentage: number;
 
 
