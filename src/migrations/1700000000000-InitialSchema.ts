@@ -38,6 +38,23 @@ export class InitialSchema1700000000000 implements MigrationInterface {
   name = 'InitialSchema1700000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Guard against legacy pre-split databases: if a `course` table already
+    // exists but `section` does not, this is NOT a fresh/empty database —
+    // it's a legacy database still in the pre-`CourseSectionSplit` shape
+    // (the old monolithic `course` table has not been renamed yet).
+    //
+    // Creating an empty `section` table here would make every one of
+    // `CourseSectionSplit`'s per-step guards see `hasTable('section') ===
+    // true` and skip the entire rename/backfill/transform, silently
+    // orphaning all legacy course/enrollment/activity/grade data with zero
+    // rows ending up in `section` and no error raised. Skip entirely and let
+    // `CourseSectionSplit` perform the full legacy transformation instead.
+    const hasCourseTable = await queryRunner.hasTable('course');
+    const hasSectionTable = await queryRunner.hasTable('section');
+    if (hasCourseTable && !hasSectionTable) {
+      return;
+    }
+
     const hasUserRoleEnum = await queryRunner.query(
       `SELECT 1 FROM pg_type WHERE typname = 'user_role_enum'`,
     );
@@ -163,6 +180,19 @@ export class InitialSchema1700000000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    // Mirror the up() guard: if `course` exists but `section` does not, we
+    // are looking at a pre-split (legacy) layout. This is exactly the shape
+    // `CourseSectionSplit.down()` restores a legacy-originated database to
+    // right before this migration's down() runs. Since this migration's
+    // up() no-ops on legacy databases (see guard above), it created nothing
+    // here and must not destroy the real, restored legacy data by
+    // unconditionally dropping every table below.
+    const hasCourseTable = await queryRunner.hasTable('course');
+    const hasSectionTable = await queryRunner.hasTable('section');
+    if (hasCourseTable && !hasSectionTable) {
+      return;
+    }
+
     // Reverse dependency order: children before parents.
     if (await queryRunner.hasTable('notification')) {
       await queryRunner.query('DROP TABLE "notification"');
