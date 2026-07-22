@@ -1,6 +1,6 @@
 
 import { Role } from 'src/common/enums/role.enum';
-import { Course } from 'src/course/entities/course.entity';
+import { Section } from 'src/section/entities/section.entity';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
 import { Entity, Column, OneToMany, PrimaryColumn, OneToOne, JoinColumn } from 'typeorm';
 
@@ -27,8 +27,8 @@ export class User {
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP', onUpdate: 'CURRENT_TIMESTAMP' })
   updatedAt: Date;
 
-  @OneToMany(() => Course, (course) => course.tutor)
-  courses: Course[];
+  @OneToMany(() => Section, (section) => section.tutor)
+  sections: Section[];
 
   @OneToMany(() => Enrollment, (enrollments) => enrollments.user)
   enrollments: Enrollment[];

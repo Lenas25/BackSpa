@@ -3,7 +3,7 @@ import { CreateActivityDto } from './dto/create-activity.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
 import { Activity } from './entities/activity.entity';
 import { Repository } from 'typeorm';
-import { Course } from 'src/course/entities/course.entity';
+import { Section } from 'src/section/entities/section.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ActivityDto } from './dto/activity.dto';
 
@@ -12,23 +12,23 @@ export class ActivityService {
   constructor(
     @InjectRepository(Activity)
     private readonly activityRepository: Repository<Activity>,
-    @InjectRepository(Course)
-    private readonly courseRepository: Repository<Course>,
+    @InjectRepository(Section)
+    private readonly sectionRepository: Repository<Section>,
   ) { }
 
   async findOne(id: number) {
     try {
-      const course = await this.courseRepository.findOne({
+      const section = await this.sectionRepository.findOne({
         where: {
           id
         },
         relations: ['activities']
       })
 
-      if (!course) {
-        throw new NotFoundException('Actividades relacionadas a curso no encontrado');
+      if (!section) {
+        throw new NotFoundException('Actividades relacionadas a sección no encontrada');
       }
-      return course.activities;
+      return section.activities;
     } catch (error) {
       throw new NotFoundException(error);
     }

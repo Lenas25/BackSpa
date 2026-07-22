@@ -7,7 +7,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { User } from 'src/user/entities/user.entity';
-import { Course } from 'src/course/entities/course.entity';
+import { Section } from 'src/section/entities/section.entity';
 import { Grade } from 'src/grade/entities/grade.entity';
 import { Notification } from 'src/notification/entities/notification.entity';
 import { Transform } from 'class-transformer';
@@ -33,13 +33,13 @@ export class Enrollment {
   @JoinColumn({ name: 'id_user' })
   user?: User;
 
-  @ManyToOne(() => Course, (course) => course.enrollments,{
+  @ManyToOne(() => Section, (section) => section.enrollments,{
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
     eager: true
   })
   @JoinColumn({ name: 'id_course' })
-  course: Course;
+  section: Section;
 
   @OneToMany(() => Grade, (grades) => grades.enrollment)
   grades: Grade[];

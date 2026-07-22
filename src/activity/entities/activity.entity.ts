@@ -1,5 +1,5 @@
 import { Exclude } from "class-transformer";
-import { Course } from "src/course/entities/course.entity";
+import { Section } from "src/section/entities/section.entity";
 import { Grade } from "src/grade/entities/grade.entity";
 import { Column, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from "typeorm";
 
@@ -13,10 +13,10 @@ export class Activity {
   percentage: number;
 
 
-  @ManyToOne(() => Course, (course) => course.activities, { onDelete: 'CASCADE' , onUpdate: 'CASCADE'})
+  @ManyToOne(() => Section, (section) => section.activities, { onDelete: 'CASCADE' , onUpdate: 'CASCADE'})
   @JoinColumn({ name: 'id_course' })
   @Exclude({ toPlainOnly: true })
-  course: Course;
+  section: Section;
   
   @OneToMany(() => Grade, (grades) => grades.activity, {onDelete: 'CASCADE', onUpdate: 'CASCADE'})
   grades: Grade[];

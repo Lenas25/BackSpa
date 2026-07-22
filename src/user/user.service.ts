@@ -6,7 +6,6 @@ import { In, type Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { Twilio } from 'twilio';
-import { Course } from 'src/course/entities/course.entity';
 
 @Injectable()
 export class UserService {
@@ -38,7 +37,7 @@ export class UserService {
 
   async findAll() {
     return await this.userRepository.find({
-      relations: ["courses"],
+      relations: ["sections"],
     });
   }
 
@@ -48,7 +47,7 @@ export class UserService {
         where: {
           id,
         },
-        relations: ["courses"],
+        relations: ["sections"],
       });
       if (!user) {
         throw new Error("No se encontro el usuario");

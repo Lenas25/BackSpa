@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException, Res } from '@nestjs/common';
 import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
-import { Course } from 'src/course/entities/course.entity';
+import { Section } from 'src/section/entities/section.entity';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { User } from 'src/user/entities/user.entity';
@@ -13,8 +13,8 @@ export class EnrollmentService {
     private readonly enrollmentRepository: Repository<Enrollment>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    @InjectRepository(Course)
-    private readonly courseRepository: Repository<Course>,
+    @InjectRepository(Section)
+    private readonly sectionRepository: Repository<Section>,
   ) { }
 
   async findAll() {
@@ -37,7 +37,7 @@ export class EnrollmentService {
             id: user.id
           }
         },
-        relations: ['course', 'user']
+        relations: ['section', 'user']
       });
       if (!enrollment) {
         throw new NotFoundException('Matrícula no encontrada');
@@ -50,18 +50,18 @@ export class EnrollmentService {
 
   async findOneByCourse(id: number) {
     try {
-      const course = await this.courseRepository.findOne({
+      const section = await this.sectionRepository.findOne({
         where: {
           id
         }
       });
-      if (!course) {
-        throw new NotFoundException('Curso no encontrado');
+      if (!section) {
+        throw new NotFoundException('Sección no encontrada');
       }
       const enrollment = await this.enrollmentRepository.find({
         where: {
-          course: {
-            id: course.id
+          section: {
+            id: section.id
           },
           active: true
         }
@@ -77,19 +77,19 @@ export class EnrollmentService {
 
   async update(id: number, updateEnrollmentDto: UpdateEnrollmentDto) {
     try {
-      const course = await this.courseRepository.findOne({
+      const section = await this.sectionRepository.findOne({
         where: {
           id
         }
       });
-      if (!course) {
-        throw new NotFoundException('Curso no encontrado');
+      if (!section) {
+        throw new NotFoundException('Sección no encontrada');
       }
 
       const currentEnrollments = await this.enrollmentRepository.find({
         where: {
-          course: {
-            id: course.id
+          section: {
+            id: section.id
           }
         },
         relations: ['user'],
@@ -114,7 +114,7 @@ export class EnrollmentService {
           const newEnrollment = this.enrollmentRepository.create({
             ...updateEnrollmentDto,
             user,
-            course,
+            section,
             active: true
           });
 
@@ -135,8 +135,8 @@ export class EnrollmentService {
 
       return await this.enrollmentRepository.find({
         where: {
-          course: {
-            id: course.id
+          section: {
+            id: section.id
           }
         },
         relations: ['user']
@@ -149,7 +149,7 @@ export class EnrollmentService {
 
   async finishCourse(id: number) {
     try {
-      const course = await this.courseRepository.findOne({
+      const section = await this.sectionRepository.findOne({
         where: {
           id
         }
@@ -157,8 +157,8 @@ export class EnrollmentService {
       const enrollments = await this.enrollmentRepository.find({
         where: {
           active: true,
-          course:{
-            id: course.id
+          section:{
+            id: section.id
           }
         }
       });
@@ -168,8 +168,8 @@ export class EnrollmentService {
         await this.enrollmentRepository.save(enrollment);
       }
 
-      course.isActive = false;
-      await this.courseRepository.save(course);
+      section.isActive = false;
+      await this.sectionRepository.save(section);
       return enrollments;
     } catch (error) {
       throw new BadRequestException(error);

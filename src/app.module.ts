@@ -2,12 +2,14 @@ import { Module } from '@nestjs/common';
 import { UserModule } from './user/user.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CourseModule } from './course/course.module';
+import { SectionModule } from './section/section.module';
 import { EnrollmentModule } from './enrollment/enrollment.module';
 import { NotificationModule } from './notification/notification.module';
 import { ActivityModule } from './activity/activity.module';
 import { GradeModule } from './grade/grade.module';
 import { Grade } from './grade/entities/grade.entity';
 import { Course } from './course/entities/course.entity';
+import { Section } from './section/entities/section.entity';
 import { Enrollment } from './enrollment/entities/enrollment.entity';
 import { User } from './user/entities/user.entity';
 import { Notification } from './notification/entities/notification.entity';
@@ -23,6 +25,7 @@ import { ImagesModule } from './images/images.module';
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     UserModule,
     CourseModule,
+    SectionModule,
     EnrollmentModule,
     NotificationModule,
     ActivityModule,
@@ -40,7 +43,7 @@ import { ImagesModule } from './images/images.module';
       // uncontrolled DDL against the course/section tables. See
       // BackSpa/docs/deploy-runbook.md.
       synchronize: false,
-      entities: [Grade, Course, Enrollment, User, Notification, Activity],
+      entities: [Grade, Course, Section, Enrollment, User, Notification, Activity],
       ssl: { rejectUnauthorized: false },
     }),
     AuthModule,

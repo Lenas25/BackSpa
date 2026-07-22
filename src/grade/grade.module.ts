@@ -8,14 +8,14 @@ import { EnrollmentModule } from 'src/enrollment/enrollment.module';
 import { EnrollmentService } from 'src/enrollment/enrollment.service';
 import { ActivityService } from 'src/activity/activity.service';
 import { UserModule } from 'src/user/user.module';
-import { CourseModule } from 'src/course/course.module';
-import { CourseService } from 'src/course/course.service';
+import { SectionModule } from 'src/section/section.module';
+import { SectionService } from 'src/section/section.service';
 import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Grade]), ActivityModule, EnrollmentModule, UserModule, CourseModule,AuthModule],
+  imports: [TypeOrmModule.forFeature([Grade]), ActivityModule, EnrollmentModule, UserModule, SectionModule,AuthModule],
   controllers: [GradeController],
-  providers: [GradeService, EnrollmentService, ActivityService, CourseService],
+  providers: [GradeService, EnrollmentService, ActivityService, SectionService],
   exports: [TypeOrmModule, GradeService],
 })
 export class GradeModule {}

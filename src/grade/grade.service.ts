@@ -5,15 +5,15 @@ import { Repository } from 'typeorm';
 import { Activity } from 'src/activity/entities/activity.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
-import { Course } from 'src/course/entities/course.entity';
+import { Section } from 'src/section/entities/section.entity';
 
 @Injectable()
 export class GradeService {
   private readonly logger = new Logger(GradeService.name);
 
   constructor(
-    @InjectRepository(Course)
-    private readonly courseRepository: Repository<Course>,
+    @InjectRepository(Section)
+    private readonly sectionRepository: Repository<Section>,
     @InjectRepository(Grade)
     private readonly gradeRepository: Repository<Grade>,
     @InjectRepository(Activity)
@@ -49,24 +49,24 @@ export class GradeService {
     }
   }
 
-  async update(courseId: number, updateGradeDto: UpdateGradeDto) {
+  async update(sectionId: number, updateGradeDto: UpdateGradeDto) {
     try {
       const { id_activity, grades } = updateGradeDto;
 
-      // 1. Validar que el curso y la actividad existan
-      const course = await this.courseRepository.findOne({
-        where: { id: courseId },
+      // 1. Validar que la sección y la actividad existan
+      const section = await this.sectionRepository.findOne({
+        where: { id: sectionId },
       });
-      if (!course) {
-        throw new BadRequestException('El curso no existe');
+      if (!section) {
+        throw new BadRequestException('La sección no existe');
       }
 
       const activity = await this.activityRepository.findOne({
-        where: { id: id_activity, course: { id: courseId } },
+        where: { id: id_activity, section: { id: sectionId } },
       });
       if (!activity) {
         throw new BadRequestException(
-          'La actividad no existe o no pertenece a este curso',
+          'La actividad no existe o no pertenece a esta sección',
         );
       }
 
@@ -77,15 +77,15 @@ export class GradeService {
       for (const gradeDto of grades) {
         const { id_enrollment, grade } = gradeDto;
 
-        // Validar que la matrícula pertenezca al curso
+        // Validar que la matrícula pertenezca a la sección
         const enrollment = await this.enrollmentRepository.findOne({
-          where: { id: id_enrollment, course: { id: courseId } },
+          where: { id: id_enrollment, section: { id: sectionId } },
         });
 
-        // Si la matrícula no existe o no es de este curso, la saltamos.
+        // Si la matrícula no existe o no es de esta sección, la saltamos.
         if (!enrollment) {
           this.logger.warn(
-            `Matrícula ${id_enrollment} no encontrada para curso ${courseId}. Saltando.`,
+            `Matrícula ${id_enrollment} no encontrada para sección ${sectionId}. Saltando.`,
           );
           continue;
         }
@@ -141,25 +141,25 @@ export class GradeService {
       // 1. Obtener la matrícula y el ID de su curso
       const enrollment = await this.enrollmentRepository.findOne({
         where: { id: enrollmentId },
-        relations: ['course'],
+        relations: ['section'],
       });
 
-      if (!enrollment || !enrollment.course) {
+      if (!enrollment || !enrollment.section) {
         throw new Error(
-          `Matrícula o curso asociado no encontrado para ID ${enrollmentId}`,
+          `Matrícula o sección asociada no encontrada para ID ${enrollmentId}`,
         );
       }
 
-      const courseId = enrollment.course.id;
+      const sectionId = enrollment.section.id;
 
       // 2. Obtener TODAS las notas de esta matrícula
       const allGrades = await this.gradeRepository.find({
         where: { id_enrollment: enrollmentId },
       });
 
-      // 3. Obtener TODAS las actividades de este curso
+      // 3. Obtener TODAS las actividades de esta sección
       const allActivities = await this.activityRepository.find({
-        where: { course: { id: courseId } },
+        where: { section: { id: sectionId } },
       });
 
       // 4. Mapear actividades por ID para fácil acceso a su porcentaje
