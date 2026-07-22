@@ -33,7 +33,7 @@ import { ImagesModule } from './images/images.module';
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
-      port: process.env.DB_PORT ? Number.parseInt(process.env.DB_PORT) : 3306,
+      port: process.env.DB_PORT ? Number.parseInt(process.env.DB_PORT) : 5432,
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
@@ -44,7 +44,8 @@ import { ImagesModule } from './images/images.module';
       // BackSpa/docs/deploy-runbook.md.
       synchronize: false,
       entities: [Grade, Course, Section, Enrollment, User, Notification, Activity],
-      ssl: { rejectUnauthorized: false },
+      // Local Postgres has no SSL. Set DB_SSL=true for managed providers that require it.
+      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     }),
     AuthModule,
     ImagesModule,
