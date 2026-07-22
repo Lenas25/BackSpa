@@ -1,0 +1,8 @@
+{
+  "name": "buffer-equal-constant-time",
+  "version": "1.0.1",
+  "description": "Local trusted shim replacing the unmaintained buffer-equal-constant-time package, which crashes on Node versions that removed Buffer.SlowBuffer. Wired in via npm overrides.",
+  "main": "index.js",
+  "license": "BSD-3-Clause",
+  "private": true
+}

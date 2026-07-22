@@ -1,5 +1,29 @@
 import { Test, TestingModule } from '@nestjs/testing';
+
+// SectionController applies AuthGuard/RolesGuard at the class level (every
+// route, including findAll). NestJS constructs guards referenced via
+// @UseGuards during module compilation, so the real AuthGuard (and its
+// JwtService dependency) would otherwise need full DI wiring just to
+// unit-test findAll. Replace both guards with inert stand-ins, matching the
+// pattern in test/course.e2e-spec.ts.
+jest.mock('src/auth/guard/auth.guard', () => ({
+  AuthGuard: class AuthGuard {
+    canActivate() {
+      return true;
+    }
+  },
+}));
+jest.mock('src/auth/guard/roles.guard', () => ({
+  RolesGuard: class RolesGuard {
+    canActivate() {
+      return true;
+    }
+  },
+}));
+
+// eslint-disable-next-line import/first
 import { SectionController } from './section.controller';
+// eslint-disable-next-line import/first
 import { SectionService } from './section.service';
 
 describe('SectionController', () => {
