@@ -4,7 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { Payment } from './entities/payment.entity';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
 import { RegisterPaymentDto } from './dto/register-payment.dto';
@@ -17,6 +17,12 @@ export interface PaymentView {
   amount: number | null;
   paidDate: Date | null;
   status: 'pendiente' | 'cancelado';
+}
+
+export interface PaymentSectionRow extends PaymentView {
+  enrollmentId: number;
+  studentId: string | undefined;
+  studentName: string;
 }
 
 @Injectable()
@@ -213,6 +219,35 @@ export class PaymentService {
     });
 
     return payments.map((payment) => this.toView(payment));
+  }
+
+  // Section Detail Pagos Tab (spec: "payment-management" domain) — admin
+  // grid data source. Flat, per-installment list scoped to every enrollment
+  // in the section; the frontend groups rows by `enrollmentId` into a
+  // per-student accordion (design's Frontend Architecture, PR6 scope).
+  async findBySection(sectionId: number): Promise<PaymentSectionRow[]> {
+    const enrollments = await this.enrollmentRepository.find({
+      where: { section: { id: sectionId } },
+    });
+    if (enrollments.length === 0) {
+      return [];
+    }
+
+    const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+    const payments = await this.paymentRepository.find({
+      where: { enrollment: { id: In(enrollmentIds) } },
+      relations: ['enrollment'],
+      order: { installmentNumber: 'ASC' },
+    });
+
+    return payments.map((payment) => ({
+      ...this.toView(payment),
+      enrollmentId: payment.enrollment.id,
+      studentId: payment.enrollment.user?.id,
+      studentName: payment.enrollment.user
+        ? `${payment.enrollment.user.name} ${payment.enrollment.user.lastName}`
+        : '',
+    }));
   }
 
   // TUTOR is denied regardless of section assignment (spec: "Role-Based

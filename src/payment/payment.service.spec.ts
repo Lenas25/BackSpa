@@ -15,7 +15,7 @@ describe('PaymentService', () => {
     findOne: jest.Mock;
     find: jest.Mock;
   };
-  let enrollmentRepository: { findOne: jest.Mock };
+  let enrollmentRepository: { findOne: jest.Mock; find: jest.Mock };
   let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
@@ -27,6 +27,7 @@ describe('PaymentService', () => {
     };
     enrollmentRepository = {
       findOne: jest.fn(),
+      find: jest.fn(),
     };
     dataSource = { transaction: jest.fn() };
 
@@ -475,6 +476,78 @@ describe('PaymentService', () => {
       await expect(
         service.findByEnrollment(999, { id: 'admin-1', role: Role.ADMIN }),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // Section Detail Pagos Tab (spec: "payment-management" domain) — admin
+  // grid data source. Returns a flat, per-installment list scoped to every
+  // enrollment in the section (frontend groups by enrollmentId, PR6 scope).
+  describe('findBySection', () => {
+    it('returns an empty list when the section has no enrollments', async () => {
+      enrollmentRepository.find.mockResolvedValue([]);
+
+      const result = await service.findBySection(11);
+
+      expect(enrollmentRepository.find).toHaveBeenCalledWith({
+        where: { section: { id: 11 } },
+      });
+      expect(paymentRepository.find).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
+    });
+
+    it('returns installments for every enrollment in the section, ordered by installment number', async () => {
+      const enrollmentA = {
+        id: 7,
+        user: { id: 'alumno-1', name: 'Ana', lastName: 'Lopez' },
+      } as unknown as Enrollment;
+      const enrollmentB = {
+        id: 8,
+        user: { id: 'alumno-2', name: 'Beto', lastName: 'Diaz' },
+      } as unknown as Enrollment;
+      enrollmentRepository.find.mockResolvedValue([enrollmentA, enrollmentB]);
+
+      const payments = [
+        {
+          id: 1,
+          installmentNumber: 1,
+          amount: null,
+          paidDate: null,
+          enrollment: enrollmentA,
+        },
+        {
+          id: 2,
+          installmentNumber: 1,
+          amount: 100,
+          paidDate: new Date('2026-01-01'),
+          enrollment: enrollmentB,
+        },
+      ] as unknown as Payment[];
+      paymentRepository.find.mockResolvedValue(payments);
+
+      const result = await service.findBySection(11);
+
+      expect(paymentRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          relations: ['enrollment'],
+          order: { installmentNumber: 'ASC' },
+        }),
+      );
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: 1,
+          enrollmentId: 7,
+          studentId: 'alumno-1',
+          studentName: 'Ana Lopez',
+          status: 'pendiente',
+        }),
+        expect.objectContaining({
+          id: 2,
+          enrollmentId: 8,
+          studentId: 'alumno-2',
+          studentName: 'Beto Diaz',
+          status: 'cancelado',
+        }),
+      ]);
     });
   });
 });
