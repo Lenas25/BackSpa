@@ -7,6 +7,7 @@ import { User } from 'src/user/entities/user.entity';
 import { Enrollment } from './entities/enrollment.entity';
 import { Role } from 'src/common/enums/role.enum';
 import type { RequestingUser } from 'src/section/section.service';
+import { PaymentService } from 'src/payment/payment.service';
 
 @Injectable()
 export class EnrollmentService {
@@ -17,6 +18,7 @@ export class EnrollmentService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Section)
     private readonly sectionRepository: Repository<Section>,
+    private readonly paymentService: PaymentService,
   ) { }
 
   // Role-Based Section Access (spec: "tutor-scoping" domain) — TUTOR is
@@ -142,7 +144,15 @@ export class EnrollmentService {
             active: true
           });
 
-          await this.enrollmentRepository.save(newEnrollment);
+          const savedEnrollment = await this.enrollmentRepository.save(newEnrollment);
+
+          // Auto-Generation on Enrollment (design ADR "Lifecycle Rules" —
+          // sdd/pagos/design): fires once per NEWLY enrolled student only,
+          // post-dedupe. PaymentService itself skips null/0 counts.
+          await this.paymentService.generateForEnrollment(
+            savedEnrollment,
+            section.installmentsCount,
+          );
         }
       }
 

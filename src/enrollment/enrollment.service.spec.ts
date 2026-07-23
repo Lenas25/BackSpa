@@ -1,11 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { EnrollmentService } from './enrollment.service';
 import { Enrollment } from './entities/enrollment.entity';
 import { User } from 'src/user/entities/user.entity';
 import { Section } from 'src/section/entities/section.entity';
 import { Role } from 'src/common/enums/role.enum';
+import { PaymentService } from 'src/payment/payment.service';
 
 // Duplicate Enrollment Rejection / Multi-Section Enrollment (spec:
 // "section-enrollment" domain) — a student MAY be enrolled in multiple
@@ -21,8 +22,9 @@ describe('EnrollmentService — duplicate enrollment rules', () => {
   };
   let userRepository: { findOne: jest.Mock };
   let sectionRepository: { findOne: jest.Mock };
+  let paymentService: { generateForEnrollment: jest.Mock };
 
-  const section = { id: 5, name: 'Cohorte Enero' } as Section;
+  const section = { id: 5, name: 'Cohorte Enero', installmentsCount: null } as Section;
   const studentA = { id: 'user-a' } as User;
 
   beforeEach(async () => {
@@ -34,6 +36,7 @@ describe('EnrollmentService — duplicate enrollment rules', () => {
     };
     userRepository = { findOne: jest.fn() };
     sectionRepository = { findOne: jest.fn() };
+    paymentService = { generateForEnrollment: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -41,6 +44,7 @@ describe('EnrollmentService — duplicate enrollment rules', () => {
         { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(Section), useValue: sectionRepository },
+        { provide: PaymentService, useValue: paymentService },
       ],
     }).compile();
 
@@ -115,6 +119,7 @@ describe('EnrollmentService.findAll — tutor section-scoped listing', () => {
         { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
         { provide: getRepositoryToken(User), useValue: { findOne: jest.fn() } },
         { provide: getRepositoryToken(Section), useValue: { findOne: jest.fn() } },
+        { provide: PaymentService, useValue: { generateForEnrollment: jest.fn() } },
       ],
     }).compile();
 
@@ -176,6 +181,7 @@ describe('EnrollmentService.findOneByUser — alumno own-data scoping', () => {
         { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(Section), useValue: { findOne: jest.fn() } },
+        { provide: PaymentService, useValue: { generateForEnrollment: jest.fn() } },
       ],
     }).compile();
 
@@ -215,5 +221,93 @@ describe('EnrollmentService.findOneByUser — alumno own-data scoping', () => {
         relations: expect.arrayContaining(['section', 'user', 'section.course']),
       }),
     );
+  });
+});
+
+// Auto-Generation on Enrollment (design ADR "Lifecycle Rules" —
+// sdd/pagos/design): generateForEnrollment fires once per NEWLY enrolled
+// student, post-dedupe, inside EnrollmentService.update's usersToAdd loop —
+// re-activations and removals are untouched.
+describe('EnrollmentService.update — installment generation hook', () => {
+  let service: EnrollmentService;
+  let enrollmentRepository: {
+    find: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+    delete: jest.Mock;
+  };
+  let userRepository: { findOne: jest.Mock };
+  let sectionRepository: { findOne: jest.Mock };
+  let paymentService: { generateForEnrollment: jest.Mock };
+
+  const section = { id: 5, name: 'Cohorte Enero', installmentsCount: 3 } as Section;
+  const studentA = { id: 'user-a' } as User;
+
+  beforeEach(async () => {
+    enrollmentRepository = {
+      find: jest.fn(),
+      create: jest.fn(),
+      save: jest.fn(),
+      delete: jest.fn(),
+    };
+    userRepository = { findOne: jest.fn() };
+    sectionRepository = { findOne: jest.fn() };
+    paymentService = { generateForEnrollment: jest.fn().mockResolvedValue([]) };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        EnrollmentService,
+        { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
+        { provide: getRepositoryToken(User), useValue: userRepository },
+        { provide: getRepositoryToken(Section), useValue: sectionRepository },
+        { provide: PaymentService, useValue: paymentService },
+      ],
+    }).compile();
+
+    service = module.get<EnrollmentService>(EnrollmentService);
+    sectionRepository.findOne.mockResolvedValue(section);
+  });
+
+  it('generates pending installments for a newly enrolled student using the section installmentsCount', async () => {
+    const savedEnrollment = { id: 42, user: studentA, section, active: true };
+    enrollmentRepository.find.mockResolvedValueOnce([]).mockResolvedValueOnce([savedEnrollment]);
+    userRepository.findOne.mockResolvedValue(studentA);
+    enrollmentRepository.create.mockImplementation((data) => data);
+    enrollmentRepository.save.mockResolvedValue(savedEnrollment);
+
+    await service.update(section.id, { users: [{ id: 'user-a' }] } as never);
+
+    expect(paymentService.generateForEnrollment).toHaveBeenCalledTimes(1);
+    expect(paymentService.generateForEnrollment).toHaveBeenCalledWith(savedEnrollment, 3);
+  });
+
+  it('does not generate installments for a user who was already enrolled (re-activation only)', async () => {
+    const existingEnrollment = { id: 1, user: studentA, active: false };
+    enrollmentRepository.find
+      .mockResolvedValueOnce([existingEnrollment])
+      .mockResolvedValueOnce([existingEnrollment]);
+    enrollmentRepository.save.mockResolvedValue(existingEnrollment);
+
+    await service.update(section.id, { users: [{ id: 'user-a' }] } as never);
+
+    expect(paymentService.generateForEnrollment).not.toHaveBeenCalled();
+  });
+
+  it('passes through a null installmentsCount when the section has no installment plan configured', async () => {
+    const sectionWithoutCount = {
+      id: 6,
+      name: 'Cohorte Julio',
+      installmentsCount: null,
+    } as unknown as Section;
+    sectionRepository.findOne.mockResolvedValue(sectionWithoutCount);
+    const savedEnrollment = { id: 43, user: studentA, section: sectionWithoutCount, active: true };
+    enrollmentRepository.find.mockResolvedValueOnce([]).mockResolvedValueOnce([savedEnrollment]);
+    userRepository.findOne.mockResolvedValue(studentA);
+    enrollmentRepository.create.mockImplementation((data) => data);
+    enrollmentRepository.save.mockResolvedValue(savedEnrollment);
+
+    await service.update(sectionWithoutCount.id, { users: [{ id: 'user-a' }] } as never);
+
+    expect(paymentService.generateForEnrollment).toHaveBeenCalledWith(savedEnrollment, null);
   });
 });
