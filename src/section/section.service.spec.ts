@@ -6,6 +6,7 @@ import { Course } from 'src/course/entities/course.entity';
 import { Activity } from 'src/activity/entities/activity.entity';
 import { User } from 'src/user/entities/user.entity';
 import { Role } from 'src/common/enums/role.enum';
+import { PaymentService } from 'src/payment/payment.service';
 
 describe('SectionService', () => {
   let service: SectionService;
@@ -13,6 +14,7 @@ describe('SectionService', () => {
   let courseRepository: { findOne: jest.Mock };
   let activityRepository: { create: jest.Mock; save: jest.Mock; find: jest.Mock; remove: jest.Mock };
   let userRepository: { findOne: jest.Mock };
+  let paymentService: { adjustForSection: jest.Mock };
 
   beforeEach(async () => {
     sectionRepository = {
@@ -25,6 +27,7 @@ describe('SectionService', () => {
     courseRepository = { findOne: jest.fn() };
     activityRepository = { create: jest.fn(), save: jest.fn(), find: jest.fn(), remove: jest.fn() };
     userRepository = { findOne: jest.fn() };
+    paymentService = { adjustForSection: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -33,6 +36,7 @@ describe('SectionService', () => {
         { provide: getRepositoryToken(Course), useValue: courseRepository },
         { provide: getRepositoryToken(Activity), useValue: activityRepository },
         { provide: getRepositoryToken(User), useValue: userRepository },
+        { provide: PaymentService, useValue: paymentService },
       ],
     }).compile();
 

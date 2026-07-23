@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, Injectable } from '@nestjs/common';
 import type { CreateSectionDto } from './dto/create-section.dto';
 import type { UpdateSectionDto } from './dto/update-section.dto';
 import { Section } from './entities/section.entity';
@@ -9,6 +9,7 @@ import { User } from 'src/user/entities/user.entity';
 import { Course } from 'src/course/entities/course.entity';
 import type { CreateActivityDto } from 'src/activity/dto/create-activity.dto';
 import { Role } from 'src/common/enums/role.enum';
+import { PaymentService } from 'src/payment/payment.service';
 
 // JWT payload shape attached to the request by AuthGuard (see auth.service's
 // login() payload: { role, id }).
@@ -29,6 +30,7 @@ export class SectionService {
     private activityRepository: Repository<Activity>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private readonly paymentService: PaymentService,
   ) { }
 
   async create(createSectionDto: CreateSectionDto) {
