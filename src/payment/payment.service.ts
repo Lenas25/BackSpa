@@ -15,7 +15,7 @@ export interface PaymentView {
   id: number;
   installmentNumber: number;
   amount: number | null;
-  paidDate: Date | null;
+  paidDate: string | null;
   status: 'pendiente' | 'cancelado';
 }
 
@@ -175,7 +175,15 @@ export class PaymentService {
     }
 
     payment.amount = dto.amount;
-    payment.paidDate = new Date(dto.paidDate);
+    // bugfix (sdd/pagos verify PR3/PR4 CRITICAL finding): do NOT construct
+    // `new Date(dto.paidDate)`. `dto.paidDate` is already a date-only ISO
+    // string validated by `@IsISO8601` — assigning it straight through to
+    // this `date`-typed column avoids TypeORM's Date-object persist path
+    // (which reads LOCAL timezone getters off a UTC-parsed instant and
+    // silently rolls the date back a day, or a year on Jan 1st, on any
+    // host west of UTC). See entities/payment.entity.ts's `paidDate` field
+    // comment for the full root-cause trace.
+    payment.paidDate = dto.paidDate;
 
     const saved = await this.paymentRepository.save(payment);
     return this.toView(saved);

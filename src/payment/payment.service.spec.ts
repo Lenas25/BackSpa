@@ -326,11 +326,34 @@ describe('PaymentService', () => {
         expect.objectContaining({
           id: 10,
           amount: 150.5,
-          paidDate: new Date('2026-07-23'),
+          paidDate: '2026-07-23',
         }),
       );
       expect(result.status).toBe('cancelado');
       expect(result.amount).toBe(150.5);
+    });
+
+    // Regression guard (sdd/pagos verify PR3/PR4 CRITICAL finding): asserts
+    // the ISO date-only string is persisted UNCHANGED, with no `new Date()`
+    // wrapping. This is a unit-level guard on the assignment logic only —
+    // a mocked repository never touches the real pg driver, so it cannot
+    // by itself catch node-postgres/TypeORM's timezone-dependent date
+    // serialization. The actual persistence guard is the live curl+psql
+    // round-trip check (see apply-progress / verify report evidence).
+    it('does not wrap paidDate in a Date object (avoids TZ-dependent day/year rollback on persist)', async () => {
+      const pending = {
+        id: 20,
+        installmentNumber: 1,
+        amount: null,
+        paidDate: null,
+      } as unknown as Payment;
+      paymentRepository.findOne.mockResolvedValue(pending);
+
+      await service.pay(20, { amount: 50, paidDate: '2026-01-01' });
+
+      const savedArg = paymentRepository.save.mock.calls[0][0];
+      expect(typeof savedArg.paidDate).toBe('string');
+      expect(savedArg.paidDate).toBe('2026-01-01');
     });
 
     it('corrects amount/paidDate on an already-paid installment', async () => {
