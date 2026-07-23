@@ -114,8 +114,16 @@ describe('PaymentService', () => {
 
     it('adds new pending installments when the count increases', async () => {
       const existing = [
-        { id: 100, installmentNumber: 1, paidDate: '2026-01-01' } as unknown as Payment,
-        { id: 101, installmentNumber: 2, paidDate: '2026-02-01' } as unknown as Payment,
+        {
+          id: 100,
+          installmentNumber: 1,
+          paidDate: '2026-01-01',
+        } as unknown as Payment,
+        {
+          id: 101,
+          installmentNumber: 2,
+          paidDate: '2026-02-01',
+        } as unknown as Payment,
         { id: 102, installmentNumber: 3, paidDate: null } as unknown as Payment,
         { id: 103, installmentNumber: 4, paidDate: null } as unknown as Payment,
       ];
@@ -134,8 +142,16 @@ describe('PaymentService', () => {
 
     it('removes only unpaid installments when the count decreases above the paid floor', async () => {
       const existing = [
-        { id: 100, installmentNumber: 1, paidDate: '2026-01-01' } as unknown as Payment,
-        { id: 101, installmentNumber: 2, paidDate: '2026-02-01' } as unknown as Payment,
+        {
+          id: 100,
+          installmentNumber: 1,
+          paidDate: '2026-01-01',
+        } as unknown as Payment,
+        {
+          id: 101,
+          installmentNumber: 2,
+          paidDate: '2026-02-01',
+        } as unknown as Payment,
         { id: 102, installmentNumber: 3, paidDate: null } as unknown as Payment,
         { id: 103, installmentNumber: 4, paidDate: null } as unknown as Payment,
         { id: 104, installmentNumber: 5, paidDate: null } as unknown as Payment,
@@ -157,9 +173,21 @@ describe('PaymentService', () => {
 
     it('blocks (400) a decrease below the highest paid installment and applies no changes', async () => {
       const existing = [
-        { id: 100, installmentNumber: 1, paidDate: '2026-01-01' } as unknown as Payment,
-        { id: 101, installmentNumber: 2, paidDate: '2026-02-01' } as unknown as Payment,
-        { id: 102, installmentNumber: 3, paidDate: '2026-03-01' } as unknown as Payment,
+        {
+          id: 100,
+          installmentNumber: 1,
+          paidDate: '2026-01-01',
+        } as unknown as Payment,
+        {
+          id: 101,
+          installmentNumber: 2,
+          paidDate: '2026-02-01',
+        } as unknown as Payment,
+        {
+          id: 102,
+          installmentNumber: 3,
+          paidDate: '2026-03-01',
+        } as unknown as Payment,
       ];
       const { txPaymentRepo } = mockTransaction([enrollmentA], {
         1: existing,
@@ -174,8 +202,16 @@ describe('PaymentService', () => {
 
     it('blocks the whole section adjustment if ANY enrollment would breach its paid floor', async () => {
       const paidEnrollment = [
-        { id: 200, installmentNumber: 1, paidDate: '2026-01-01' } as unknown as Payment,
-        { id: 201, installmentNumber: 2, paidDate: '2026-02-01' } as unknown as Payment,
+        {
+          id: 200,
+          installmentNumber: 1,
+          paidDate: '2026-01-01',
+        } as unknown as Payment,
+        {
+          id: 201,
+          installmentNumber: 2,
+          paidDate: '2026-02-01',
+        } as unknown as Payment,
       ];
       const safeEnrollment = [
         { id: 300, installmentNumber: 1, paidDate: null } as unknown as Payment,
@@ -207,7 +243,11 @@ describe('PaymentService', () => {
 
     it('is idempotent: re-running with the same count makes no changes', async () => {
       const existing = [
-        { id: 100, installmentNumber: 1, paidDate: '2026-01-01' } as unknown as Payment,
+        {
+          id: 100,
+          installmentNumber: 1,
+          paidDate: '2026-01-01',
+        } as unknown as Payment,
         { id: 101, installmentNumber: 2, paidDate: null } as unknown as Payment,
         { id: 102, installmentNumber: 3, paidDate: null } as unknown as Payment,
       ];

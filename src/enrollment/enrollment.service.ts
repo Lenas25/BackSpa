@@ -144,7 +144,8 @@ export class EnrollmentService {
             active: true
           });
 
-          const savedEnrollment = await this.enrollmentRepository.save(newEnrollment);
+          const savedEnrollment =
+            await this.enrollmentRepository.save(newEnrollment);
 
           // Auto-Generation on Enrollment (design ADR "Lifecycle Rules" —
           // sdd/pagos/design): fires once per NEWLY enrolled student only,

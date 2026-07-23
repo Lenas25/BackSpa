@@ -111,8 +111,7 @@ export class PaymentService {
       for (const [enrollment, payments] of paymentsByEnrollment) {
         const installmentsToRemove = payments.filter(
           (payment) =>
-            payment.paidDate == null &&
-            payment.installmentNumber > targetCount,
+            payment.paidDate == null && payment.installmentNumber > targetCount,
         );
         if (installmentsToRemove.length > 0) {
           await paymentRepository.remove(installmentsToRemove);
