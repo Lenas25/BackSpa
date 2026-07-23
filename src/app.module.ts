@@ -19,6 +19,8 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { RolesGuard } from './auth/guard/roles.guard';
 import { ImagesModule } from './images/images.module';
+import { PaymentModule } from './payment/payment.module';
+import { Payment } from './payment/entities/payment.entity';
 
 @Module({
   imports: [
@@ -30,6 +32,7 @@ import { ImagesModule } from './images/images.module';
     NotificationModule,
     ActivityModule,
     GradeModule,
+    PaymentModule,
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
@@ -43,9 +46,19 @@ import { ImagesModule } from './images/images.module';
       // uncontrolled DDL against the course/section tables. See
       // BackSpa/docs/deploy-runbook.md.
       synchronize: false,
-      entities: [Grade, Course, Section, Enrollment, User, Notification, Activity],
+      entities: [
+        Grade,
+        Course,
+        Section,
+        Enrollment,
+        User,
+        Notification,
+        Activity,
+        Payment,
+      ],
       // Local Postgres has no SSL. Set DB_SSL=true for managed providers that require it.
-      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+      ssl:
+        process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     }),
     AuthModule,
     ImagesModule,
