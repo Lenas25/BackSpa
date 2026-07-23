@@ -4,6 +4,7 @@ import { Payment } from './entities/payment.entity';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
 import { AuthModule } from 'src/auth/auth.module';
 import { PaymentService } from './payment.service';
+import { PaymentController } from './payment.controller';
 
 // PaymentModule owns the installment lifecycle. It registers BOTH the
 // Payment and Enrollment repositories here (registering a repository token
@@ -14,6 +15,7 @@ import { PaymentService } from './payment.service';
 // cycle that would otherwise require forwardRef across three modules.
 @Module({
   imports: [TypeOrmModule.forFeature([Payment, Enrollment]), AuthModule],
+  controllers: [PaymentController],
   providers: [PaymentService],
   exports: [TypeOrmModule, PaymentService],
 })
