@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Payment } from './entities/payment.entity';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
 import { AuthModule } from 'src/auth/auth.module';
+import { PaymentService } from './payment.service';
 
 // PaymentModule owns the installment lifecycle. It registers BOTH the
 // Payment and Enrollment repositories here (registering a repository token
@@ -13,6 +14,7 @@ import { AuthModule } from 'src/auth/auth.module';
 // cycle that would otherwise require forwardRef across three modules.
 @Module({
   imports: [TypeOrmModule.forFeature([Payment, Enrollment]), AuthModule],
-  exports: [TypeOrmModule],
+  providers: [PaymentService],
+  exports: [TypeOrmModule, PaymentService],
 })
 export class PaymentModule {}
