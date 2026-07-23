@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { SectionService } from './section.service';
 import { Section } from './entities/section.entity';
@@ -27,7 +28,9 @@ describe('SectionService', () => {
     courseRepository = { findOne: jest.fn() };
     activityRepository = { create: jest.fn(), save: jest.fn(), find: jest.fn(), remove: jest.fn() };
     userRepository = { findOne: jest.fn() };
-    paymentService = { adjustForSection: jest.fn().mockResolvedValue(undefined) };
+    paymentService = {
+      adjustForSection: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -248,6 +251,65 @@ describe('SectionService', () => {
       sectionRepository.delete.mockResolvedValue({ affected: 0 });
 
       await expect(service.remove(999)).rejects.toThrow();
+    });
+  });
+
+  // Count-Change Adjustment (design ADR "Adjustment atomicity" —
+  // sdd/pagos/design): adjustForSection runs BEFORE sectionRepository.save,
+  // only when installmentsCount actually changes.
+  describe('update — installment count adjustment', () => {
+    const existingSection = {
+      id: 1,
+      name: 'Cohorte Enero',
+      installmentsCount: 3,
+    };
+
+    beforeEach(() => {
+      sectionRepository.findOne.mockResolvedValue({ ...existingSection });
+      sectionRepository.save.mockResolvedValue(existingSection);
+    });
+
+    it('calls adjustForSection with the new count before saving the section', async () => {
+      const callOrder: string[] = [];
+      paymentService.adjustForSection.mockImplementation(async () => {
+        callOrder.push('adjust');
+      });
+      sectionRepository.save.mockImplementation(async () => {
+        callOrder.push('save');
+        return existingSection;
+      });
+
+      await service.update(1, { installmentsCount: 6 } as never);
+
+      expect(paymentService.adjustForSection).toHaveBeenCalledWith(1, 6);
+      expect(callOrder).toEqual(['adjust', 'save']);
+    });
+
+    it('does not call adjustForSection when installmentsCount is omitted from the payload', async () => {
+      await service.update(1, { name: 'Cohorte Renombrada' } as never);
+
+      expect(paymentService.adjustForSection).not.toHaveBeenCalled();
+    });
+
+    it('does not call adjustForSection when installmentsCount is unchanged', async () => {
+      await service.update(1, { installmentsCount: 3 } as never);
+
+      expect(paymentService.adjustForSection).not.toHaveBeenCalled();
+    });
+
+    it('propagates the paid-floor rejection message intact, without wrapping it in a generic error', async () => {
+      const paidFloorMessage =
+        'No se puede reducir la cantidad de cuotas a 2: la matrícula 7 ya tiene cuotas pagadas hasta la cuota 3.';
+      paymentService.adjustForSection.mockRejectedValue(
+        new BadRequestException(paidFloorMessage),
+      );
+
+      await expect(
+        service.update(1, { installmentsCount: 2 } as never),
+      ).rejects.toMatchObject({
+        message: paidFloorMessage,
+      });
+      expect(sectionRepository.save).not.toHaveBeenCalled();
     });
   });
 });

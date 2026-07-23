@@ -24,7 +24,11 @@ describe('EnrollmentService — duplicate enrollment rules', () => {
   let sectionRepository: { findOne: jest.Mock };
   let paymentService: { generateForEnrollment: jest.Mock };
 
-  const section = { id: 5, name: 'Cohorte Enero', installmentsCount: null } as Section;
+  const section = {
+    id: 5,
+    name: 'Cohorte Enero',
+    installmentsCount: null,
+  } as Section;
   const studentA = { id: 'user-a' } as User;
 
   beforeEach(async () => {
@@ -41,7 +45,10 @@ describe('EnrollmentService — duplicate enrollment rules', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EnrollmentService,
-        { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
+        {
+          provide: getRepositoryToken(Enrollment),
+          useValue: enrollmentRepository,
+        },
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(Section), useValue: sectionRepository },
         { provide: PaymentService, useValue: paymentService },
@@ -119,7 +126,10 @@ describe('EnrollmentService.findAll — tutor section-scoped listing', () => {
         { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
         { provide: getRepositoryToken(User), useValue: { findOne: jest.fn() } },
         { provide: getRepositoryToken(Section), useValue: { findOne: jest.fn() } },
-        { provide: PaymentService, useValue: { generateForEnrollment: jest.fn() } },
+        {
+          provide: PaymentService,
+          useValue: { generateForEnrollment: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -181,7 +191,10 @@ describe('EnrollmentService.findOneByUser — alumno own-data scoping', () => {
         { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(Section), useValue: { findOne: jest.fn() } },
-        { provide: PaymentService, useValue: { generateForEnrollment: jest.fn() } },
+        {
+          provide: PaymentService,
+          useValue: { generateForEnrollment: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -240,7 +253,11 @@ describe('EnrollmentService.update — installment generation hook', () => {
   let sectionRepository: { findOne: jest.Mock };
   let paymentService: { generateForEnrollment: jest.Mock };
 
-  const section = { id: 5, name: 'Cohorte Enero', installmentsCount: 3 } as Section;
+  const section = {
+    id: 5,
+    name: 'Cohorte Enero',
+    installmentsCount: 3,
+  } as Section;
   const studentA = { id: 'user-a' } as User;
 
   beforeEach(async () => {
@@ -257,10 +274,16 @@ describe('EnrollmentService.update — installment generation hook', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EnrollmentService,
-        { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
+        {
+          provide: getRepositoryToken(Enrollment),
+          useValue: enrollmentRepository,
+        },
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(Section), useValue: sectionRepository },
-        { provide: PaymentService, useValue: paymentService },
+        {
+          provide: PaymentService,
+          useValue: paymentService,
+        },
       ],
     }).compile();
 
@@ -269,8 +292,15 @@ describe('EnrollmentService.update — installment generation hook', () => {
   });
 
   it('generates pending installments for a newly enrolled student using the section installmentsCount', async () => {
-    const savedEnrollment = { id: 42, user: studentA, section, active: true };
-    enrollmentRepository.find.mockResolvedValueOnce([]).mockResolvedValueOnce([savedEnrollment]);
+    const savedEnrollment = {
+      id: 42,
+      user: studentA,
+      section,
+      active: true,
+    };
+    enrollmentRepository.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([savedEnrollment]);
     userRepository.findOne.mockResolvedValue(studentA);
     enrollmentRepository.create.mockImplementation((data) => data);
     enrollmentRepository.save.mockResolvedValue(savedEnrollment);
@@ -278,7 +308,10 @@ describe('EnrollmentService.update — installment generation hook', () => {
     await service.update(section.id, { users: [{ id: 'user-a' }] } as never);
 
     expect(paymentService.generateForEnrollment).toHaveBeenCalledTimes(1);
-    expect(paymentService.generateForEnrollment).toHaveBeenCalledWith(savedEnrollment, 3);
+    expect(paymentService.generateForEnrollment).toHaveBeenCalledWith(
+      savedEnrollment,
+      3,
+    );
   });
 
   it('does not generate installments for a user who was already enrolled (re-activation only)', async () => {
@@ -300,14 +333,52 @@ describe('EnrollmentService.update — installment generation hook', () => {
       installmentsCount: null,
     } as unknown as Section;
     sectionRepository.findOne.mockResolvedValue(sectionWithoutCount);
-    const savedEnrollment = { id: 43, user: studentA, section: sectionWithoutCount, active: true };
-    enrollmentRepository.find.mockResolvedValueOnce([]).mockResolvedValueOnce([savedEnrollment]);
+    const savedEnrollment = {
+      id: 43,
+      user: studentA,
+      section: sectionWithoutCount,
+      active: true,
+    };
+    enrollmentRepository.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([savedEnrollment]);
     userRepository.findOne.mockResolvedValue(studentA);
     enrollmentRepository.create.mockImplementation((data) => data);
     enrollmentRepository.save.mockResolvedValue(savedEnrollment);
 
-    await service.update(sectionWithoutCount.id, { users: [{ id: 'user-a' }] } as never);
+    await service.update(sectionWithoutCount.id, {
+      users: [{ id: 'user-a' }],
+    } as never);
 
-    expect(paymentService.generateForEnrollment).toHaveBeenCalledWith(savedEnrollment, null);
+    expect(paymentService.generateForEnrollment).toHaveBeenCalledWith(
+      savedEnrollment,
+      null,
+    );
+  });
+
+  // Error propagation: EnrollmentService.update's broad try/catch must not
+  // mangle an HttpException's original message into a generic wrapped one
+  // (mirrors the same guarantee added to SectionService.update).
+  it('propagates an HttpException from generateForEnrollment intact, without wrapping its message', async () => {
+    const originalMessage =
+      'No se puede reducir la cantidad de cuotas a 2: ya existen cuotas pagadas.';
+    enrollmentRepository.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    userRepository.findOne.mockResolvedValue(studentA);
+    enrollmentRepository.create.mockImplementation((data) => data);
+    enrollmentRepository.save.mockResolvedValue({
+      id: 42,
+      user: studentA,
+      section,
+      active: true,
+    });
+    paymentService.generateForEnrollment.mockRejectedValue(
+      new BadRequestException(originalMessage),
+    );
+
+    await expect(
+      service.update(section.id, { users: [{ id: 'user-a' }] } as never),
+    ).rejects.toMatchObject({ message: originalMessage });
   });
 });

@@ -100,6 +100,7 @@ export class SectionService {
         throw new Error('No se encontró la sección');
       }
       const { activities, id_tutor, id_course, ...sectionData } = updateSectionDto;
+      const previousInstallmentsCount = section.installmentsCount;
       Object.assign(section, sectionData);
       if (id_tutor) {
         const tutor = await this.userRepository.findOne({ where: { id: id_tutor } });
@@ -115,6 +116,21 @@ export class SectionService {
         }
         section.course = course;
       }
+
+      // Count-Change Adjustment (design ADR "Adjustment atomicity" —
+      // sdd/pagos/design): runs BEFORE the section save, and only when
+      // installmentsCount actually changes. A paid-floor rejection here
+      // blocks the section save entirely.
+      if (
+        sectionData.installmentsCount !== undefined &&
+        sectionData.installmentsCount !== previousInstallmentsCount
+      ) {
+        await this.paymentService.adjustForSection(
+          id,
+          sectionData.installmentsCount,
+        );
+      }
+
       await this.sectionRepository.save(section);
 
       if (activities) {
@@ -123,6 +139,12 @@ export class SectionService {
 
       return await this.sectionRepository.findOne({ where: { id }, relations: ['activities', 'tutor', 'course'] });
     } catch (error) {
+      // Preserve HttpExceptions (e.g. the paid-floor 400 from
+      // PaymentService.adjustForSection) intact — wrapping them here would
+      // mangle the original reason into a generic Error message.
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new Error(`Error actualizando la sección: ${error}`);
     }
   }
