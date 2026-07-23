@@ -202,13 +202,20 @@ export class GradeService {
         activityPercentageMap.set(act.id, Number(act.percentage));
       });
 
-      // 5. Calcular la nueva nota final
-      let newFinalGrade = 0;
+      // 5. Calcular la nueva nota final como promedio ponderado:
+      //    final = Σ(nota_i × pct_i) / Σ(pct_i de actividades con nota)
+      // Solo las actividades que ya tienen una nota registrada contribuyen,
+      // tanto a la suma ponderada como al peso total, para que el promedio
+      // no dependa de que los porcentajes de la sección sumen 100 (mismo
+      // criterio que src/utils/gradeAverage.ts en el frontend).
+      let weightedSum = 0;
+      let totalWeight = 0;
       for (const grade of allGrades) {
         const percentage = activityPercentageMap.get(grade.id_activity);
 
         if (percentage) {
-          newFinalGrade += Number(grade.grade) * percentage;
+          weightedSum += Number(grade.grade) * percentage;
+          totalWeight += percentage;
         } else {
           // Esto puede pasar si se eliminó una actividad pero la nota persiste
           this.logger.warn(
@@ -217,7 +224,10 @@ export class GradeService {
         }
       }
 
-      // 6. Actualizar la nota final en la matrícula (redondeando a 2 decimales)
+      // 6. Actualizar la nota final en la matrícula (redondeando a 2
+      // decimales). Sin actividades calificadas (o con peso total 0) la
+      // nota final es 0 en vez de dividir por cero.
+      const newFinalGrade = totalWeight > 0 ? weightedSum / totalWeight : 0;
       enrollment.final_grade = Number(newFinalGrade.toFixed(2));
       await this.enrollmentRepository.save(enrollment);
 
