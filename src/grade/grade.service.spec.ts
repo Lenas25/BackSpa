@@ -16,8 +16,8 @@ describe('GradeService — tutor ownership scoping', () => {
   let service: GradeService;
   let sectionRepository: { findOne: jest.Mock };
   let gradeRepository: { find: jest.Mock };
-  let activityRepository: { findOne: jest.Mock };
-  let enrollmentRepository: { findOne: jest.Mock };
+  let activityRepository: { findOne: jest.Mock; find: jest.Mock };
+  let enrollmentRepository: { findOne: jest.Mock; save: jest.Mock };
 
   const TUTOR_ID = 'tutor-own';
   const OTHER_TUTOR_ID = 'tutor-other';
@@ -25,8 +25,8 @@ describe('GradeService — tutor ownership scoping', () => {
   beforeEach(async () => {
     sectionRepository = { findOne: jest.fn() };
     gradeRepository = { find: jest.fn() };
-    activityRepository = { findOne: jest.fn() };
-    enrollmentRepository = { findOne: jest.fn() };
+    activityRepository = { findOne: jest.fn(), find: jest.fn() };
+    enrollmentRepository = { findOne: jest.fn(), save: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -138,6 +138,93 @@ describe('GradeService — tutor ownership scoping', () => {
       await expect(
         service.findByEnrollment(1, { id: 'student-2', role: Role.ALUMNO }),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // Backend bugfix: recalculateFinalGrade multiplied grade × whole-number
+  // percentage without dividing, so enrollment.final_grade (numeric(4,2),
+  // max 99.99) overflowed on real data (e.g. 18 * 60 = 1080). The rule is a
+  // weighted running average — final = Σ(grade_i × pct_i) / Σ(pct_i of
+  // GRADED activities) — mirroring src/utils/gradeAverage.ts on the
+  // frontend, which was already updated when the %=100 requirement was
+  // removed.
+  describe('recalculateFinalGrade (weighted average)', () => {
+    const ENROLLMENT_ID = 42;
+    let enrollment: {
+      id: number;
+      section: { id: number };
+      final_grade: number;
+    };
+
+    beforeEach(() => {
+      enrollment = { id: ENROLLMENT_ID, section: { id: 1 }, final_grade: 0 };
+      enrollmentRepository.findOne.mockResolvedValue(enrollment);
+      enrollmentRepository.save.mockImplementation(async (e) => e);
+    });
+
+    it('computes a weighted average instead of the raw percentage-scaled sum', async () => {
+      gradeRepository.find.mockResolvedValue([
+        { id_activity: 1, grade: 18 },
+        { id_activity: 2, grade: 16 },
+      ]);
+      activityRepository.find.mockResolvedValue([
+        { id: 1, percentage: 60 },
+        { id: 2, percentage: 40 },
+      ]);
+
+      await (service as any).recalculateFinalGrade(ENROLLMENT_ID);
+
+      // 18*60 + 16*40 = 1720 (the overflow bug); the correct weighted
+      // average divides by the total weight: 1720 / 100 = 17.2.
+      expect(enrollment.final_grade).toBeCloseTo(17.2, 2);
+    });
+
+    it('divides only by the percentage of graded activities on partial grading', async () => {
+      gradeRepository.find.mockResolvedValue([{ id_activity: 1, grade: 18 }]);
+      activityRepository.find.mockResolvedValue([
+        { id: 1, percentage: 60 },
+        { id: 2, percentage: 40 }, // ungraded — must not dilute the average
+      ]);
+
+      await (service as any).recalculateFinalGrade(ENROLLMENT_ID);
+
+      expect(enrollment.final_grade).toBe(18);
+    });
+
+    it('sets final_grade to 0 when nothing has been graded yet', async () => {
+      gradeRepository.find.mockResolvedValue([]);
+      activityRepository.find.mockResolvedValue([
+        { id: 1, percentage: 60 },
+        { id: 2, percentage: 40 },
+      ]);
+
+      await (service as any).recalculateFinalGrade(ENROLLMENT_ID);
+
+      expect(enrollment.final_grade).toBe(0);
+    });
+
+    it('guards against division by zero when graded activities carry no weight', async () => {
+      gradeRepository.find.mockResolvedValue([{ id_activity: 1, grade: 20 }]);
+      activityRepository.find.mockResolvedValue([{ id: 1, percentage: 0 }]);
+
+      await (service as any).recalculateFinalGrade(ENROLLMENT_ID);
+
+      expect(enrollment.final_grade).toBe(0);
+    });
+
+    it('never produces a value that overflows numeric(4,2)', async () => {
+      gradeRepository.find.mockResolvedValue([
+        { id_activity: 1, grade: 20 },
+        { id_activity: 2, grade: 19 },
+      ]);
+      activityRepository.find.mockResolvedValue([
+        { id: 1, percentage: 60 },
+        { id: 2, percentage: 40 },
+      ]);
+
+      await (service as any).recalculateFinalGrade(ENROLLMENT_ID);
+
+      expect(enrollment.final_grade).toBeLessThanOrEqual(99.99);
     });
   });
 });
