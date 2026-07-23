@@ -39,11 +39,28 @@ export class PaymentService {
   // Status is derived from paidDate, never a DB column (design ADR "Status:
   // derived from paidDate" — sdd/pagos/design). Only payment endpoints
   // return this view.
+  //
+  // `amount` normalization (bugfix, sdd/pagos verify PR3/PR4 WARNING
+  // finding): Postgres `numeric` columns are hydrated by node-postgres as
+  // STRINGS (e.g. "175.50"), while `pay()`/`unmark()` echo back the
+  // caller-supplied JS number without a round-trip through the DB — so the
+  // same field returned `string` on GET and `number` on PATCH. Normalizing
+  // here, in the single shared view-mapper every payment endpoint routes
+  // through, guarantees `amount` is always a `number` (or `null` while
+  // pending) regardless of which code path produced the underlying
+  // `Payment` entity. NOTE: this codebase does NOT wire up
+  // `ClassSerializerInterceptor` anywhere and every controller builds its
+  // response manually via `@Res() response.json(...)`, so a class-
+  // transformer `@Transform` decorator on the entity (the pattern used by
+  // `Enrollment.final_grade`) would silently never run for these routes —
+  // confirmed no `instanceToPlain`/`ClassSerializerInterceptor` usage
+  // anywhere in `src/`. Normalizing explicitly here is the fix that
+  // actually reaches the response.
   toView(payment: Payment): PaymentView {
     return {
       id: payment.id,
       installmentNumber: payment.installmentNumber,
-      amount: payment.amount,
+      amount: payment.amount === null ? null : Number(payment.amount),
       paidDate: payment.paidDate,
       status: payment.paidDate ? 'cancelado' : 'pendiente',
     };

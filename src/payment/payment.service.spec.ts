@@ -299,6 +299,37 @@ describe('PaymentService', () => {
 
       expect(service.toView(payment).status).toBe('cancelado');
     });
+
+    // Regression guard (sdd/pagos verify PR3/PR4 WARNING finding): Postgres
+    // `numeric` columns hydrate as STRINGS via node-postgres. Every payment
+    // endpoint routes through this shared mapper, so normalizing here
+    // guarantees `amount` is always a JS number in every response,
+    // regardless of whether the underlying entity came from a fresh DB read
+    // (string) or a caller-supplied write (already a number).
+    it('normalizes a string amount (as returned by a live Postgres numeric column) to a number', () => {
+      const payment = {
+        id: 1,
+        installmentNumber: 1,
+        amount: '175.50' as unknown as number,
+        paidDate: '2026-01-01',
+      } as unknown as Payment;
+
+      const result = service.toView(payment);
+
+      expect(result.amount).toBe(175.5);
+      expect(typeof result.amount).toBe('number');
+    });
+
+    it('keeps a null amount as null (pending installment)', () => {
+      const payment = {
+        id: 1,
+        installmentNumber: 1,
+        amount: null,
+        paidDate: null,
+      } as unknown as Payment;
+
+      expect(service.toView(payment).amount).toBeNull();
+    });
   });
 
   // Admin Payment Registration + Admin Payment Correction (spec:
