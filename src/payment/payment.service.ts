@@ -1,8 +1,15 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Payment } from './entities/payment.entity';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
+import { RegisterPaymentDto } from './dto/register-payment.dto';
+import { Role } from 'src/common/enums/role.enum';
+import type { RequestingUser } from 'src/section/section.service';
 
 export interface PaymentView {
   id: number;
@@ -17,6 +24,8 @@ export class PaymentService {
   constructor(
     @InjectRepository(Payment)
     private readonly paymentRepository: Repository<Payment>,
+    @InjectRepository(Enrollment)
+    private readonly enrollmentRepository: Repository<Enrollment>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
@@ -145,5 +154,88 @@ export class PaymentService {
         }
       }
     });
+  }
+
+  // Admin Payment Registration + Admin Payment Correction (spec:
+  // "payment-management" domain). Design's single `PATCH /payment/:id`
+  // endpoint covers both: this method unconditionally overwrites
+  // amount+paidDate whether the row is currently pending (registration) or
+  // already paid (correction) — no separate "edit" method, no audit
+  // history (design ADR "Pay vs unmark API").
+  async pay(id: number, dto: RegisterPaymentDto): Promise<PaymentView> {
+    const payment = await this.paymentRepository.findOne({ where: { id } });
+    if (!payment) {
+      throw new BadRequestException('La cuota no existe');
+    }
+
+    payment.amount = dto.amount;
+    payment.paidDate = new Date(dto.paidDate);
+
+    const saved = await this.paymentRepository.save(payment);
+    return this.toView(saved);
+  }
+
+  // Admin Payment Correction — "Revert to pending" scenario (spec:
+  // "payment-management" domain). No audit history: a plain clear of both
+  // fields (user decision).
+  async unmark(id: number): Promise<PaymentView> {
+    const payment = await this.paymentRepository.findOne({ where: { id } });
+    if (!payment) {
+      throw new BadRequestException('La cuota no existe');
+    }
+
+    payment.amount = null;
+    payment.paidDate = null;
+
+    const saved = await this.paymentRepository.save(payment);
+    return this.toView(saved);
+  }
+
+  // Alumno Read-Only Mis Cuotas + Role-Based Access (spec:
+  // "student-payments-view" domain). Follows GradeService.findByEnrollment's
+  // ownership idiom: ALUMNO only sees an enrollment that is actually theirs.
+  async findByEnrollment(
+    id: number,
+    requestingUser?: RequestingUser,
+  ): Promise<PaymentView[]> {
+    const enrollment = await this.enrollmentRepository.findOne({
+      where: { id },
+    });
+    if (!enrollment) {
+      throw new BadRequestException('La matrícula no existe');
+    }
+
+    this.assertEnrollmentOwnership(enrollment, requestingUser);
+
+    const payments = await this.paymentRepository.find({
+      where: { enrollment: { id } },
+      order: { installmentNumber: 'ASC' },
+    });
+
+    return payments.map((payment) => this.toView(payment));
+  }
+
+  // TUTOR is denied regardless of section assignment (spec: "Role-Based
+  // Access" requirement). This is defense in depth — PaymentController's
+  // @Roles(ADMIN, ALUMNO) (PR4 scope) already keeps TUTOR from reaching this
+  // method in practice, matching design's Authorization table.
+  private assertEnrollmentOwnership(
+    enrollment: Enrollment,
+    requestingUser?: RequestingUser,
+  ) {
+    if (!requestingUser) {
+      return;
+    }
+    if (requestingUser.role === Role.TUTOR) {
+      throw new ForbiddenException('No tiene acceso a los datos de pagos');
+    }
+    if (
+      requestingUser.role === Role.ALUMNO &&
+      enrollment.user?.id !== requestingUser.id
+    ) {
+      throw new ForbiddenException(
+        'No tiene acceso a los datos de esta matrícula',
+      );
+    }
   }
 }

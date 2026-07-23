@@ -1,23 +1,32 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { PaymentService } from './payment.service';
 import { Payment } from './entities/payment.entity';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
+import { Role } from 'src/common/enums/role.enum';
 
 describe('PaymentService', () => {
   let service: PaymentService;
   let paymentRepository: {
     create: jest.Mock;
     save: jest.Mock;
+    findOne: jest.Mock;
+    find: jest.Mock;
   };
+  let enrollmentRepository: { findOne: jest.Mock };
   let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
     paymentRepository = {
       create: jest.fn((data) => data),
       save: jest.fn(async (rows) => rows),
+      findOne: jest.fn(),
+      find: jest.fn(),
+    };
+    enrollmentRepository = {
+      findOne: jest.fn(),
     };
     dataSource = { transaction: jest.fn() };
 
@@ -25,6 +34,10 @@ describe('PaymentService', () => {
       providers: [
         PaymentService,
         { provide: getRepositoryToken(Payment), useValue: paymentRepository },
+        {
+          provide: getRepositoryToken(Enrollment),
+          useValue: enrollmentRepository,
+        },
         { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
@@ -284,6 +297,184 @@ describe('PaymentService', () => {
       } as unknown as Payment;
 
       expect(service.toView(payment).status).toBe('cancelado');
+    });
+  });
+
+  // Admin Payment Registration + Admin Payment Correction (spec:
+  // "payment-management" domain). One method serves both: design's single
+  // `PATCH /payment/:id` endpoint sets amount+paidDate whether the row is
+  // currently pending (registration) or already paid (correction) — no
+  // audit history, edit is a plain overwrite (design ADR "Pay vs unmark
+  // API").
+  describe('pay', () => {
+    it('registers a payment on a pending installment', async () => {
+      const pending = {
+        id: 10,
+        installmentNumber: 1,
+        amount: null,
+        paidDate: null,
+      } as unknown as Payment;
+      paymentRepository.findOne.mockResolvedValue(pending);
+
+      const result = await service.pay(10, {
+        amount: 150.5,
+        paidDate: '2026-07-23',
+      });
+
+      expect(paymentRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 10,
+          amount: 150.5,
+          paidDate: new Date('2026-07-23'),
+        }),
+      );
+      expect(result.status).toBe('cancelado');
+      expect(result.amount).toBe(150.5);
+    });
+
+    it('corrects amount/paidDate on an already-paid installment', async () => {
+      const paid = {
+        id: 11,
+        installmentNumber: 1,
+        amount: 100,
+        paidDate: new Date('2026-01-01'),
+      } as unknown as Payment;
+      paymentRepository.findOne.mockResolvedValue(paid);
+
+      const result = await service.pay(11, {
+        amount: 120,
+        paidDate: '2026-02-01',
+      });
+
+      expect(paymentRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 11, amount: 120 }),
+      );
+      expect(result.status).toBe('cancelado');
+      expect(result.amount).toBe(120);
+    });
+
+    it('rejects paying an installment that does not exist', async () => {
+      paymentRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.pay(999, { amount: 100, paidDate: '2026-01-01' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(paymentRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // Admin Payment Correction — "Revert to pending" scenario. No audit
+  // history: unmark is a plain clear of both fields (user decision).
+  describe('unmark', () => {
+    it('reverts a paid installment to pendiente, clearing amount and paidDate', async () => {
+      const paid = {
+        id: 12,
+        installmentNumber: 2,
+        amount: 100,
+        paidDate: new Date('2026-01-01'),
+      } as unknown as Payment;
+      paymentRepository.findOne.mockResolvedValue(paid);
+
+      const result = await service.unmark(12);
+
+      expect(paymentRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 12, amount: null, paidDate: null }),
+      );
+      expect(result.status).toBe('pendiente');
+      expect(result.amount).toBeNull();
+    });
+
+    it('is a no-op-safe overwrite when unmarking an already-pending installment', async () => {
+      const pending = {
+        id: 13,
+        installmentNumber: 3,
+        amount: null,
+        paidDate: null,
+      } as unknown as Payment;
+      paymentRepository.findOne.mockResolvedValue(pending);
+
+      const result = await service.unmark(13);
+
+      expect(result.status).toBe('pendiente');
+    });
+
+    it('rejects unmarking an installment that does not exist', async () => {
+      paymentRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.unmark(999)).rejects.toThrow(BadRequestException);
+      expect(paymentRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // Role-Based Access + Alumno Read-Only Mis Cuotas (spec:
+  // "student-payments-view" domain). Alumno may only read installments for
+  // an enrollment that is actually theirs; TUTOR is denied at the service
+  // layer too (defense in depth — the controller's @Roles(ADMIN, ALUMNO)
+  // already keeps TUTOR from reaching this method in practice, PR4 scope).
+  describe('findByEnrollment', () => {
+    const ownEnrollment = {
+      id: 7,
+      user: { id: 'alumno-1' },
+    } as unknown as Enrollment;
+
+    it('returns payments ordered by installment number for the owning alumno', async () => {
+      enrollmentRepository.findOne.mockResolvedValue(ownEnrollment);
+      const payments = [
+        { id: 1, installmentNumber: 1, amount: null, paidDate: null },
+        {
+          id: 2,
+          installmentNumber: 2,
+          amount: 100,
+          paidDate: new Date('2026-01-01'),
+        },
+      ] as unknown as Payment[];
+      paymentRepository.find.mockResolvedValue(payments);
+
+      const result = await service.findByEnrollment(7, {
+        id: 'alumno-1',
+        role: Role.ALUMNO,
+      });
+
+      expect(paymentRepository.find).toHaveBeenCalledWith({
+        where: { enrollment: { id: 7 } },
+        order: { installmentNumber: 'ASC' },
+      });
+      expect(result.map((p) => p.status)).toEqual(['pendiente', 'cancelado']);
+    });
+
+    it('allows ADMIN to read any enrollment', async () => {
+      enrollmentRepository.findOne.mockResolvedValue(ownEnrollment);
+      paymentRepository.find.mockResolvedValue([]);
+
+      await expect(
+        service.findByEnrollment(7, { id: 'admin-1', role: Role.ADMIN }),
+      ).resolves.toEqual([]);
+    });
+
+    it('denies an alumno reading a different alumno enrollment (403)', async () => {
+      enrollmentRepository.findOne.mockResolvedValue(ownEnrollment);
+
+      await expect(
+        service.findByEnrollment(7, { id: 'alumno-2', role: Role.ALUMNO }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(paymentRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('denies TUTOR at the service layer (defense in depth)', async () => {
+      enrollmentRepository.findOne.mockResolvedValue(ownEnrollment);
+
+      await expect(
+        service.findByEnrollment(7, { id: 'tutor-1', role: Role.TUTOR }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(paymentRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the enrollment does not exist', async () => {
+      enrollmentRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.findByEnrollment(999, { id: 'admin-1', role: Role.ADMIN }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });
