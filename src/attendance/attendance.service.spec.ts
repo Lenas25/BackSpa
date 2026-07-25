@@ -175,6 +175,26 @@ describe('AttendanceService', () => {
       );
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
+
+    // TOCTOU regression (Finding 3): the pre-check above is racy — a
+    // concurrent request can pass it and then hit the DB's
+    // UNIQUE(section,date) constraint inside the transaction. That must
+    // still surface as 409 Conflict, not a raw QueryFailedError (which the
+    // controller would otherwise default to 400).
+    it('translates a concurrent unique-violation (23505) from the transactional insert into 409 Conflict', async () => {
+      sectionRepository.findOne.mockResolvedValue(section);
+      attendanceDayRepository.findOne.mockResolvedValue(null); // pre-check sees no row yet
+
+      const uniqueViolation = Object.assign(
+        new Error('duplicate key value violates unique constraint'),
+        { code: '23505' },
+      );
+      dataSource.transaction.mockRejectedValue(uniqueViolation);
+
+      await expect(service.createDay(5, '2026-07-24')).rejects.toThrow(
+        ConflictException,
+      );
+    });
   });
 
   describe('findDaysBySection', () => {

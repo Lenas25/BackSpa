@@ -119,32 +119,47 @@ export class AttendanceService {
       );
     }
 
-    return this.dataSource.transaction(async (manager) => {
-      const dayRepository = manager.getRepository(AttendanceDay);
-      const attendanceRepository = manager.getRepository(Attendance);
-      const enrollmentRepository = manager.getRepository(Enrollment);
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        const dayRepository = manager.getRepository(AttendanceDay);
+        const attendanceRepository = manager.getRepository(Attendance);
+        const enrollmentRepository = manager.getRepository(Enrollment);
 
-      const activeEnrollments = await enrollmentRepository.find({
-        where: { section: { id: sectionId }, active: true },
+        const activeEnrollments = await enrollmentRepository.find({
+          where: { section: { id: sectionId }, active: true },
+        });
+
+        const day = await dayRepository.save(
+          dayRepository.create({ section, date }),
+        );
+
+        const attendanceRows = activeEnrollments.map((enrollment) =>
+          attendanceRepository.create({ day, enrollment, present: true }),
+        );
+        const savedAttendance =
+          attendanceRows.length > 0
+            ? await attendanceRepository.save(attendanceRows)
+            : [];
+
+        return {
+          ...this.toDayView(day, sectionId, savedAttendance),
+          roster: savedAttendance.map((a) => this.toRosterEntry(a)),
+        };
       });
-
-      const day = await dayRepository.save(
-        dayRepository.create({ section, date }),
-      );
-
-      const attendanceRows = activeEnrollments.map((enrollment) =>
-        attendanceRepository.create({ day, enrollment, present: true }),
-      );
-      const savedAttendance =
-        attendanceRows.length > 0
-          ? await attendanceRepository.save(attendanceRows)
-          : [];
-
-      return {
-        ...this.toDayView(day, sectionId, savedAttendance),
-        roster: savedAttendance.map((a) => this.toRosterEntry(a)),
-      };
-    });
+    } catch (e) {
+      // The pre-check above is a fast path, not a guarantee — it's racy
+      // under concurrent requests (TOCTOU). If two requests for the same
+      // (section, date) both pass it, the loser hits the DB's
+      // UNIQUE(section,date) constraint here and must still surface as a
+      // clean 409, not bubble up as a raw QueryFailedError (which the
+      // controller would otherwise map to a generic 400).
+      if ((e as { code?: string })?.code === '23505') {
+        throw new ConflictException(
+          'Ya existe un registro de asistencia para esta sección en esta fecha',
+        );
+      }
+      throw e;
+    }
   }
 
   // Days List + Derived Counts (spec) — one row per AttendanceDay, ordered
