@@ -141,6 +141,75 @@ describe('AttendanceOwnershipGuard', () => {
         NotFoundException,
       );
     });
+
+    // IDOR regression (Finding 1): a TUTOR who owns section A cannot spoof
+    // body.sectionId=A to bypass ownership on a dayId that actually belongs
+    // to section B. The route's real target is the dayId, so the section
+    // MUST be resolved from the day and body.sectionId must be ignored,
+    // even when both are present on the request.
+    it('denies a TUTOR when body.sectionId (owned) is spoofed alongside a dayId belonging to a DIFFERENT section', async () => {
+      // dayId 1 really belongs to section 5, owned by 'tutor-other'.
+      attendanceDayRepository.findOne.mockResolvedValue({
+        id: 1,
+        section: { id: 5 },
+      });
+      // section 6 is owned by the caller ('tutor-own') — this is the
+      // spoofed body.sectionId. If the guard ever resolves against it
+      // instead of the day's real section, this mock would let it through.
+      sectionRepository.findOne.mockImplementation(({ where: { id } }) =>
+        Promise.resolve(
+          id === 5
+            ? { id: 5, tutor: { id: 'tutor-other' } }
+            : { id: 6, tutor: { id: 'tutor-own' } },
+        ),
+      );
+      const context = buildContext(
+        { role: Role.TUTOR, id: 'tutor-own' },
+        { params: { dayId: 1 }, body: { sectionId: 6 } },
+      );
+
+      await expect(guard.canActivate(context)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(sectionRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 5 },
+        relations: ['tutor'],
+      });
+    });
+  });
+
+  describe('resolving the section id from request.params.sectionId (GET /attendance/section/:sectionId, GET /attendance/metrics/section/:sectionId)', () => {
+    it('allows a TUTOR assigned to the section', async () => {
+      sectionRepository.findOne.mockResolvedValue({
+        id: 5,
+        tutor: { id: 'tutor-own' },
+      });
+      const context = buildContext(
+        { role: Role.TUTOR, id: 'tutor-own' },
+        { params: { sectionId: 5 } },
+      );
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(sectionRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 5 },
+        relations: ['tutor'],
+      });
+    });
+
+    it('denies a TUTOR not assigned to the section', async () => {
+      sectionRepository.findOne.mockResolvedValue({
+        id: 5,
+        tutor: { id: 'tutor-other' },
+      });
+      const context = buildContext(
+        { role: Role.TUTOR, id: 'tutor-own' },
+        { params: { sectionId: 5 } },
+      );
+
+      await expect(guard.canActivate(context)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
   });
 
   it('throws NotFoundException when the resolved section does not exist', async () => {
