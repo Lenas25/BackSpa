@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
@@ -10,6 +11,8 @@ import { Attendance } from './entities/attendance.entity';
 import { Section } from 'src/section/entities/section.entity';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
 import { AttendanceRecordDto } from './dto/attendance-record.dto';
+import { Role } from 'src/common/enums/role.enum';
+import type { RequestingUser } from 'src/section/section.service';
 
 export interface AttendanceDayView {
   id: number;
@@ -35,6 +38,15 @@ export interface AttendanceMetricsRow {
   presentDays: number;
   totalDays: number;
   percentage: number;
+}
+
+export interface AttendanceEnrollmentDayView {
+  date: string;
+  present: boolean;
+}
+
+export interface AttendanceByEnrollmentView extends AttendanceMetricsRow {
+  days: AttendanceEnrollmentDayView[];
 }
 
 @Injectable()
@@ -318,5 +330,84 @@ export class AttendanceService {
         percentage,
       };
     });
+  }
+
+  // Alumno own-data access (mirrors GradeService.findByEnrollment /
+  // assertEnrollmentOwnership exactly): ownership is enforced HERE, in the
+  // service, not via AttendanceOwnershipGuard — that guard is
+  // section-based and doesn't apply to this enrollment-keyed route. ALUMNO
+  // may only read an enrollment that is actually theirs; TUTOR is scoped
+  // to their own section's enrollments; ADMIN (or no requestingUser, e.g.
+  // internal use) is unrestricted.
+  private assertEnrollmentOwnership(
+    enrollment: Enrollment,
+    requestingUser?: RequestingUser,
+  ): void {
+    if (requestingUser?.role === Role.ALUMNO) {
+      if (enrollment.user?.id !== requestingUser.id) {
+        throw new ForbiddenException(
+          'No tiene acceso a los datos de esta matrícula',
+        );
+      }
+      return;
+    }
+    if (requestingUser?.role === Role.TUTOR) {
+      if (
+        !enrollment.section?.tutor ||
+        enrollment.section.tutor.id !== requestingUser.id
+      ) {
+        throw new ForbiddenException(
+          'No tiene acceso a los datos de esta matrícula',
+        );
+      }
+    }
+  }
+
+  // Student Self-Attendance-Read (new, sdd/asistencia) — same
+  // no-backfill denominator as metricsBySection (totalDays = count of
+  // Attendance rows that exist for THIS enrollment), but scoped to a
+  // single enrollment and including the per-day breakdown. `date` is kept
+  // as the raw "YYYY-MM-DD" string straight off AttendanceDay.date — never
+  // wrapped in `new Date(...)` (see attendance-day.entity.ts's comment on
+  // why: avoids the America/Lima UTC-midnight rollback bug). Sorting is
+  // done on that same lexicographically-sortable string in JS rather than
+  // via a nested TypeORM `order` on the `day` relation, which keeps the
+  // query simple and the date format's own ordering guarantee explicit.
+  async attendanceByEnrollment(
+    enrollmentId: number,
+    requestingUser?: RequestingUser,
+  ): Promise<AttendanceByEnrollmentView> {
+    const enrollment = await this.enrollmentRepository.findOne({
+      where: { id: enrollmentId },
+      relations: ['section', 'section.tutor'],
+    });
+    if (!enrollment) {
+      throw new BadRequestException('La matrícula no existe');
+    }
+
+    this.assertEnrollmentOwnership(enrollment, requestingUser);
+
+    const attendances = await this.attendanceRepository.find({
+      where: { enrollment: { id: enrollmentId } },
+      relations: ['day'],
+    });
+    attendances.sort((a, b) => a.day.date.localeCompare(b.day.date));
+
+    const totalDays = attendances.length;
+    const presentDays = attendances.filter((a) => a.present).length;
+    const percentage =
+      totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
+
+    return {
+      enrollmentId: enrollment.id,
+      studentName: this.resolveStudentName(enrollment),
+      presentDays,
+      totalDays,
+      percentage,
+      days: attendances.map((a) => ({
+        date: a.day.date,
+        present: a.present,
+      })),
+    };
   }
 }

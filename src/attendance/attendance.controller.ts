@@ -7,10 +7,11 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDayDto } from './dto/create-attendance-day.dto';
 import { UpdateAttendanceDayDto } from './dto/update-attendance-day.dto';
@@ -28,8 +29,10 @@ import { AttendanceOwnershipGuard } from 'src/auth/guard/attendance-ownership.gu
 // section data (fixed cross-tenant read exposure — was HIGH). The section
 // id isn't always a plain `:id` route param, so AttendanceOwnershipGuard is
 // used here instead of SectionOwnershipGuard — see the guard's own comment
-// for how it resolves the section per route. ALUMNO has no attendance
-// endpoints (out of scope, sdd/asistencia/decisions).
+// for how it resolves the section per route. ALUMNO has one endpoint,
+// GET /attendance/enrollment/:enrollmentId (self-read only) — its
+// ownership is enrollment-based, not section-based, so it deliberately
+// does NOT use AttendanceOwnershipGuard; see that route's own comment.
 @Controller('attendance')
 @UseGuards(AuthGuard, RolesGuard)
 export class AttendanceController {
@@ -169,6 +172,39 @@ export class AttendanceController {
       const status = e instanceof HttpException ? e.getStatus() : 400;
       return response.status(status).json({
         message: 'Error al obtener las métricas de asistencia',
+        error: e.message,
+      });
+    }
+  }
+
+  // Student self-attendance-read (mirrors GradeController.findByEnrollment):
+  // ownership here is ENROLLMENT-based (does this enrollment belong to the
+  // requesting alumno / the requesting tutor's section?), not
+  // SECTION-based, so AttendanceOwnershipGuard does NOT apply — it only
+  // resolves a section id and has no notion of "is this enrollment mine".
+  // The check instead runs inside AttendanceService.attendanceByEnrollment
+  // (assertEnrollmentOwnership), exactly like
+  // GradeService.findByEnrollment's assertEnrollmentOwnership.
+  @Get('enrollment/:enrollmentId')
+  @Roles(Role.ADMIN, Role.TUTOR, Role.ALUMNO)
+  async attendanceByEnrollment(
+    @Param('enrollmentId') enrollmentId: number,
+    @Req() request: Request,
+    @Res() response: Response,
+  ): Promise<Response> {
+    try {
+      const attendance = await this.attendanceService.attendanceByEnrollment(
+        enrollmentId,
+        request.user as never,
+      );
+      return response.status(200).json({
+        message: 'Asistencia de la matrícula obtenida correctamente',
+        data: attendance,
+      });
+    } catch (e) {
+      const status = e instanceof HttpException ? e.getStatus() : 400;
+      return response.status(status).json({
+        message: 'Error al obtener la asistencia de la matrícula',
         error: e.message,
       });
     }

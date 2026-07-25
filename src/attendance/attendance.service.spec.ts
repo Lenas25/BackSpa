@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -7,6 +11,7 @@ import { AttendanceDay } from './entities/attendance-day.entity';
 import { Attendance } from './entities/attendance.entity';
 import { Section } from 'src/section/entities/section.entity';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
+import { Role } from 'src/common/enums/role.enum';
 
 describe('AttendanceService', () => {
   let service: AttendanceService;
@@ -490,6 +495,197 @@ describe('AttendanceService', () => {
 
       // 2/3 = 66.66...% -> rounds to 67
       expect(result[0].percentage).toBe(67);
+    });
+  });
+
+  // Student self-attendance-read (spec: alumno own-data access, mirrors
+  // GradeService.findByEnrollment) — ownership is enforced IN THE SERVICE,
+  // not via AttendanceOwnershipGuard (that guard is section-based, this
+  // route's ownership is enrollment-based).
+  describe('attendanceByEnrollment', () => {
+    it('ALUMNO reading their own enrollment succeeds with correct shape', async () => {
+      const enrollment = {
+        id: 10,
+        user: { id: 'user-1', name: 'Ana', lastName: 'Lopez' },
+        section: { id: 5, tutor: { id: 'tutor-1' } },
+      } as unknown as Enrollment;
+      enrollmentRepository.findOne.mockResolvedValue(enrollment);
+      attendanceRepository.find.mockResolvedValue([
+        { present: true, day: { date: '2026-07-01' } },
+        { present: false, day: { date: '2026-07-02' } },
+      ] as unknown as Attendance[]);
+
+      const result = await service.attendanceByEnrollment(10, {
+        id: 'user-1',
+        role: Role.ALUMNO,
+      });
+
+      expect(enrollmentRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 10 },
+        relations: ['section', 'section.tutor'],
+      });
+      expect(result).toEqual({
+        enrollmentId: 10,
+        studentName: 'Ana Lopez',
+        presentDays: 1,
+        totalDays: 2,
+        percentage: 50,
+        days: [
+          { date: '2026-07-01', present: true },
+          { date: '2026-07-02', present: false },
+        ],
+      });
+    });
+
+    it('ALUMNO reading another student enrollment is rejected with ForbiddenException', async () => {
+      const enrollment = {
+        id: 10,
+        user: { id: 'user-1' },
+        section: { id: 5, tutor: { id: 'tutor-1' } },
+      } as unknown as Enrollment;
+      enrollmentRepository.findOne.mockResolvedValue(enrollment);
+
+      await expect(
+        service.attendanceByEnrollment(10, {
+          id: 'user-2',
+          role: Role.ALUMNO,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(attendanceRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('totalDays reflects only this enrollment own Attendance row count (no-backfill)', async () => {
+      // The section may have 5 recorded days total, but this enrollment
+      // only has 2 Attendance rows of its own.
+      const enrollment = {
+        id: 200,
+        user: { id: 'user-200', name: 'Cora', lastName: 'Ruiz' },
+        section: { id: 5, tutor: { id: 'tutor-1' } },
+      } as unknown as Enrollment;
+      enrollmentRepository.findOne.mockResolvedValue(enrollment);
+      attendanceRepository.find.mockResolvedValue([
+        { present: true, day: { date: '2026-07-01' } },
+        { present: false, day: { date: '2026-07-02' } },
+      ] as unknown as Attendance[]);
+
+      const result = await service.attendanceByEnrollment(200, {
+        id: 'user-200',
+        role: Role.ALUMNO,
+      });
+
+      expect(result.totalDays).toBe(2);
+    });
+
+    it('rounds percentage to the nearest integer', async () => {
+      const enrollment = {
+        id: 400,
+        user: { id: 'user-400', name: 'Eli', lastName: 'Cruz' },
+        section: { id: 5, tutor: { id: 'tutor-1' } },
+      } as unknown as Enrollment;
+      enrollmentRepository.findOne.mockResolvedValue(enrollment);
+      attendanceRepository.find.mockResolvedValue([
+        { present: true, day: { date: '2026-07-01' } },
+        { present: true, day: { date: '2026-07-02' } },
+        { present: false, day: { date: '2026-07-03' } },
+      ] as unknown as Attendance[]);
+
+      const result = await service.attendanceByEnrollment(400, {
+        id: 'user-400',
+        role: Role.ALUMNO,
+      });
+
+      // 2/3 = 66.66...% -> rounds to 67
+      expect(result.percentage).toBe(67);
+    });
+
+    it('orders days ascending by date and keeps date as a raw string', async () => {
+      const enrollment = {
+        id: 10,
+        user: { id: 'user-1', name: 'Ana', lastName: 'Lopez' },
+        section: { id: 5, tutor: { id: 'tutor-1' } },
+      } as unknown as Enrollment;
+      enrollmentRepository.findOne.mockResolvedValue(enrollment);
+      // Returned out of order on purpose to prove the service sorts them.
+      attendanceRepository.find.mockResolvedValue([
+        { present: true, day: { date: '2026-07-03' } },
+        { present: false, day: { date: '2026-07-01' } },
+        { present: true, day: { date: '2026-07-02' } },
+      ] as unknown as Attendance[]);
+
+      const result = await service.attendanceByEnrollment(10, {
+        id: 'user-1',
+        role: Role.ALUMNO,
+      });
+
+      expect(result.days.map((d) => d.date)).toEqual([
+        '2026-07-01',
+        '2026-07-02',
+        '2026-07-03',
+      ]);
+      result.days.forEach((d) => {
+        expect(typeof d.date).toBe('string');
+      });
+    });
+
+    it('TUTOR reading an enrollment of their own section succeeds', async () => {
+      const enrollment = {
+        id: 10,
+        user: { id: 'user-1', name: 'Ana', lastName: 'Lopez' },
+        section: { id: 5, tutor: { id: 'tutor-1' } },
+      } as unknown as Enrollment;
+      enrollmentRepository.findOne.mockResolvedValue(enrollment);
+      attendanceRepository.find.mockResolvedValue([]);
+
+      const result = await service.attendanceByEnrollment(10, {
+        id: 'tutor-1',
+        role: Role.TUTOR,
+      });
+
+      expect(result.enrollmentId).toBe(10);
+    });
+
+    it('TUTOR reading an enrollment outside their section is rejected with ForbiddenException', async () => {
+      const enrollment = {
+        id: 10,
+        user: { id: 'user-1' },
+        section: { id: 5, tutor: { id: 'tutor-1' } },
+      } as unknown as Enrollment;
+      enrollmentRepository.findOne.mockResolvedValue(enrollment);
+
+      await expect(
+        service.attendanceByEnrollment(10, {
+          id: 'tutor-2',
+          role: Role.TUTOR,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('ADMIN reads any enrollment unrestricted', async () => {
+      const enrollment = {
+        id: 10,
+        user: { id: 'user-1', name: 'Ana', lastName: 'Lopez' },
+        section: { id: 5, tutor: { id: 'tutor-1' } },
+      } as unknown as Enrollment;
+      enrollmentRepository.findOne.mockResolvedValue(enrollment);
+      attendanceRepository.find.mockResolvedValue([]);
+
+      const result = await service.attendanceByEnrollment(10, {
+        id: 'admin-1',
+        role: Role.ADMIN,
+      });
+
+      expect(result.enrollmentId).toBe(10);
+    });
+
+    it('rejects when the enrollment does not exist', async () => {
+      enrollmentRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.attendanceByEnrollment(999, {
+          id: 'admin-1',
+          role: Role.ADMIN,
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });
