@@ -21,6 +21,9 @@ import { RolesGuard } from './auth/guard/roles.guard';
 import { ImagesModule } from './images/images.module';
 import { PaymentModule } from './payment/payment.module';
 import { Payment } from './payment/entities/payment.entity';
+import { AttendanceModule } from './attendance/attendance.module';
+import { AttendanceDay } from './attendance/entities/attendance-day.entity';
+import { Attendance } from './attendance/entities/attendance.entity';
 
 @Module({
   imports: [
@@ -33,6 +36,7 @@ import { Payment } from './payment/entities/payment.entity';
     ActivityModule,
     GradeModule,
     PaymentModule,
+    AttendanceModule,
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
@@ -55,6 +59,8 @@ import { Payment } from './payment/entities/payment.entity';
         Notification,
         Activity,
         Payment,
+        AttendanceDay,
+        Attendance,
       ],
       // Local Postgres has no SSL. Set DB_SSL=true for managed providers that require it.
       ssl:
