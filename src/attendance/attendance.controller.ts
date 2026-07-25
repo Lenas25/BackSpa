@@ -22,12 +22,14 @@ import { AttendanceOwnershipGuard } from 'src/auth/guard/attendance-ownership.gu
 
 // Role-Based Access (mirrors payment/grade): ADMIN has full read/write on
 // every route; TUTOR is scoped to sections they own via
-// AttendanceOwnershipGuard, applied only to the section-scoped mutations
-// (POST day, PATCH day, DELETE day) — same idiom as GradeController's PATCH
-// (SectionOwnershipGuard there, AttendanceOwnershipGuard here since the
-// section id isn't always a plain `:id` route param — see the guard's own
-// comment). ALUMNO has no attendance endpoints (out of scope,
-// sdd/asistencia/decisions).
+// AttendanceOwnershipGuard, applied to every section-scoped route — reads
+// included. Attendance rosters and metrics contain student names and
+// present/absent records, so unscoped reads would leak another tutor's
+// section data (fixed cross-tenant read exposure — was HIGH). The section
+// id isn't always a plain `:id` route param, so AttendanceOwnershipGuard is
+// used here instead of SectionOwnershipGuard — see the guard's own comment
+// for how it resolves the section per route. ALUMNO has no attendance
+// endpoints (out of scope, sdd/asistencia/decisions).
 @Controller('attendance')
 @UseGuards(AuthGuard, RolesGuard)
 export class AttendanceController {
@@ -60,6 +62,7 @@ export class AttendanceController {
 
   @Get('section/:sectionId')
   @Roles(Role.ADMIN, Role.TUTOR)
+  @UseGuards(AttendanceOwnershipGuard)
   async findDaysBySection(
     @Param('sectionId') sectionId: number,
     @Res() response: Response,
@@ -81,6 +84,7 @@ export class AttendanceController {
 
   @Get('day/:dayId')
   @Roles(Role.ADMIN, Role.TUTOR)
+  @UseGuards(AttendanceOwnershipGuard)
   async findDayRoster(
     @Param('dayId') dayId: number,
     @Res() response: Response,
@@ -149,6 +153,7 @@ export class AttendanceController {
 
   @Get('metrics/section/:sectionId')
   @Roles(Role.ADMIN, Role.TUTOR)
+  @UseGuards(AttendanceOwnershipGuard)
   async metricsBySection(
     @Param('sectionId') sectionId: number,
     @Res() response: Response,
