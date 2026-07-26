@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { UpdateGradeDto } from './dto/update-grade.dto';
 import { Grade } from './entities/grade.entity';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Activity } from 'src/activity/entities/activity.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
@@ -243,6 +243,125 @@ export class GradeService {
     }
   }
 
+
+  // SECTION GRADE REPORT (PLAN_FEATURES 4.4): feeds the client-side PDF
+  // report with everything a per-student grade report needs in ONE
+  // response — the section's activities plus every ACTIVE enrollment's
+  // per-activity grades and weighted average. Mirrors the same "active
+  // only" scoping EnrollmentService.findOneBySection (GET
+  // /enrollment/course/:id) already uses for a section's roster.
+  //
+  // Ownership: this endpoint is guarded at the HTTP layer by
+  // SectionOwnershipGuard (same pattern as PATCH /grade/:id) — a TUTOR is
+  // restricted to their own section there, so no additional ownership
+  // check is duplicated here. `requestingUser` is accepted for signature
+  // parity with the other section/activity-keyed service methods and to
+  // leave room for direct (non-HTTP) callers in the future.
+  async reportBySection(sectionId: number, requestingUser?: RequestingUser) {
+    try {
+      const section = await this.sectionRepository.findOne({
+        where: { id: sectionId },
+        relations: ['course'],
+      });
+      if (!section) {
+        throw new BadRequestException('La sección no existe');
+      }
+
+      const activities = await this.activityRepository.find({
+        where: { section: { id: sectionId } },
+        order: { id: 'ASC' },
+      });
+
+      const enrollments = await this.enrollmentRepository.find({
+        where: { section: { id: sectionId }, active: true },
+        relations: ['user'],
+      });
+
+      const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+      const grades = enrollmentIds.length
+        ? await this.gradeRepository.find({
+            where: { id_enrollment: In(enrollmentIds) },
+          })
+        : [];
+
+      // Same map used by recalculateFinalGrade to look up each activity's
+      // weight when computing the weighted average.
+      const activityPercentageMap = new Map<number, number>();
+      activities.forEach((activity) => {
+        activityPercentageMap.set(activity.id, Number(activity.percentage));
+      });
+
+      const gradesByEnrollment = new Map<number, typeof grades>();
+      grades.forEach((grade) => {
+        const list = gradesByEnrollment.get(grade.id_enrollment) ?? [];
+        list.push(grade);
+        gradesByEnrollment.set(grade.id_enrollment, list);
+      });
+
+      const students = enrollments.map((enrollment) => {
+        const enrollmentGrades = gradesByEnrollment.get(enrollment.id) ?? [];
+
+        const gradeByActivity = new Map<number, number>();
+        enrollmentGrades.forEach((grade) => {
+          gradeByActivity.set(grade.id_activity, Number(grade.grade));
+        });
+
+        const studentGrades = activities.map((activity) => ({
+          activityId: activity.id,
+          grade: gradeByActivity.has(activity.id)
+            ? (gradeByActivity.get(activity.id) as number)
+            : null,
+        }));
+
+        // Weighted average over GRADED activities only — SAME formula as
+        // recalculateFinalGrade: final = Σ(nota×pct) / Σ(pct de las
+        // actividades calificadas). Computed from the actual grades +
+        // activity percentages (not enrollment.final_grade, which can be
+        // stale/0) so the PDF matches the grading UI.
+        let weightedSum = 0;
+        let totalWeight = 0;
+        for (const grade of enrollmentGrades) {
+          const percentage = activityPercentageMap.get(grade.id_activity);
+          if (percentage) {
+            weightedSum += Number(grade.grade) * percentage;
+            totalWeight += percentage;
+          }
+        }
+        const average =
+          totalWeight > 0 ? Number((weightedSum / totalWeight).toFixed(2)) : null;
+
+        const user = Array.isArray(enrollment.user)
+          ? enrollment.user[0]
+          : enrollment.user;
+
+        return {
+          enrollmentId: enrollment.id,
+          dni: user ? String(user.id) : '',
+          fullName: user ? `${user.name} ${user.lastName}`.trim() : '',
+          active: enrollment.active,
+          grades: studentGrades,
+          average,
+        };
+      });
+
+      return {
+        section: {
+          id: section.id,
+          name: section.name,
+          courseName: section.course?.name,
+        },
+        activities: activities.map((activity) => ({
+          id: activity.id,
+          name: activity.name,
+          percentage: Number(activity.percentage),
+        })),
+        students,
+      };
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      throw new BadRequestException(e.message);
+    }
+  }
 
   async findByEnrollment(id: number, requestingUser?: RequestingUser) {
     try {

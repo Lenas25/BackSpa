@@ -34,6 +34,32 @@ export class GradeController {
     }
   }
 
+  // SECTION GRADE REPORT (PLAN_FEATURES 4.4): feeds the client-side PDF
+  // report — one response with the section's activities plus every
+  // student's per-activity grades and weighted average. `id` here IS the
+  // section id (same as PATCH /grade/:id), so SectionOwnershipGuard
+  // applies directly: a TUTOR is restricted to their own section, ADMIN is
+  // unrestricted. Route declared before ':id' so 'report' isn't parsed as
+  // an :id value.
+  @Get('report/:id')
+  @Roles(Role.ADMIN, Role.TUTOR)
+  @UseGuards(SectionOwnershipGuard)
+  async reportBySection(@Param('id') id: number, @Req() request: Request, @Res() response: Response): Promise<Response> {
+    try {
+      const report = await this.gradeService.reportBySection(id, request.user as never);
+      return response.status(200).json({
+        message: "Reporte de notas generado",
+        data: report
+      })
+    } catch (e) {
+      const status = e instanceof HttpException ? e.getStatus() : 400;
+      return response.status(status).json({
+        message: "Error al generar el reporte de notas",
+        error: e.message
+      });
+    }
+  }
+
   // No @Roles restriction: ALUMNO uses this to fetch their OWN grades (see
   // GradeService.findByEnrollment's ownership check — an alumno may only
   // read grades for an enrollment that is actually theirs).

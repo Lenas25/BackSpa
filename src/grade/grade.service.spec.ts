@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { GradeService } from './grade.service';
 import { Grade } from './entities/grade.entity';
 import { Activity } from 'src/activity/entities/activity.entity';
@@ -17,7 +17,7 @@ describe('GradeService — tutor ownership scoping', () => {
   let sectionRepository: { findOne: jest.Mock };
   let gradeRepository: { find: jest.Mock };
   let activityRepository: { findOne: jest.Mock; find: jest.Mock };
-  let enrollmentRepository: { findOne: jest.Mock; save: jest.Mock };
+  let enrollmentRepository: { findOne: jest.Mock; find: jest.Mock; save: jest.Mock };
 
   const TUTOR_ID = 'tutor-own';
   const OTHER_TUTOR_ID = 'tutor-other';
@@ -26,7 +26,7 @@ describe('GradeService — tutor ownership scoping', () => {
     sectionRepository = { findOne: jest.fn() };
     gradeRepository = { find: jest.fn() };
     activityRepository = { findOne: jest.fn(), find: jest.fn() };
-    enrollmentRepository = { findOne: jest.fn(), save: jest.fn() };
+    enrollmentRepository = { findOne: jest.fn(), find: jest.fn(), save: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -225,6 +225,133 @@ describe('GradeService — tutor ownership scoping', () => {
       await (service as any).recalculateFinalGrade(ENROLLMENT_ID);
 
       expect(enrollment.final_grade).toBeLessThanOrEqual(99.99);
+    });
+  });
+
+  // SECTION GRADE REPORT (PLAN_FEATURES 4.4): feeds the client-side PDF
+  // report — one response with the section's activities plus every
+  // student's per-activity grades and weighted average. TUTOR/ADMIN
+  // ownership scoping for this endpoint is enforced at the HTTP layer by
+  // SectionOwnershipGuard (see section-ownership.guard.spec.ts); these
+  // specs only assert the service returns correct report data.
+  describe('reportBySection', () => {
+    const SECTION_ID = 7;
+
+    it('throws BadRequestException when the section does not exist', async () => {
+      sectionRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.reportBySection(SECTION_ID)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('returns section info, all activities ordered by id, and one grades entry per activity per student (null where ungraded)', async () => {
+      sectionRepository.findOne.mockResolvedValue({
+        id: SECTION_ID,
+        name: 'Sección A',
+        course: { name: 'Curso X' },
+      });
+      activityRepository.find.mockResolvedValue([
+        { id: 1, name: 'Actividad 1', percentage: 60 },
+        { id: 2, name: 'Actividad 2', percentage: 40 },
+      ]);
+      enrollmentRepository.find.mockResolvedValue([
+        {
+          id: 100,
+          active: true,
+          user: { id: 'user-1', name: 'Ana', lastName: 'Pérez' },
+        },
+        {
+          id: 101,
+          active: true,
+          user: { id: 'user-2', name: 'Luis', lastName: 'Gómez' },
+        },
+      ]);
+      gradeRepository.find.mockResolvedValue([
+        { id_enrollment: 100, id_activity: 1, grade: 18 },
+        // enrollment 100 has no grade for activity 2 (ungraded)
+        { id_enrollment: 101, id_activity: 1, grade: 14 },
+        { id_enrollment: 101, id_activity: 2, grade: 16 },
+      ]);
+
+      const report = await service.reportBySection(SECTION_ID);
+
+      expect(report.section).toEqual({
+        id: SECTION_ID,
+        name: 'Sección A',
+        courseName: 'Curso X',
+      });
+      expect(report.activities).toEqual([
+        { id: 1, name: 'Actividad 1', percentage: 60 },
+        { id: 2, name: 'Actividad 2', percentage: 40 },
+      ]);
+
+      const [student1, student2] = report.students;
+
+      expect(student1.enrollmentId).toBe(100);
+      expect(student1.dni).toBe('user-1');
+      expect(student1.fullName).toBe('Ana Pérez');
+      expect(student1.grades).toEqual([
+        { activityId: 1, grade: 18 },
+        { activityId: 2, grade: null },
+      ]);
+
+      expect(student2.grades).toEqual([
+        { activityId: 1, grade: 14 },
+        { activityId: 2, grade: 16 },
+      ]);
+    });
+
+    it('computes average as the weighted formula over GRADED activities only (matches recalculateFinalGrade)', async () => {
+      sectionRepository.findOne.mockResolvedValue({
+        id: SECTION_ID,
+        name: 'Sección A',
+        course: { name: 'Curso X' },
+      });
+      // 4 activities, but the student only has grades on 2 of them — the
+      // denominator must be only those 2 activities' percentages, not all 4.
+      activityRepository.find.mockResolvedValue([
+        { id: 1, name: 'A1', percentage: 25 },
+        { id: 2, name: 'A2', percentage: 25 },
+        { id: 3, name: 'A3', percentage: 25 },
+        { id: 4, name: 'A4', percentage: 25 },
+      ]);
+      enrollmentRepository.find.mockResolvedValue([
+        { id: 200, active: true, user: { id: 'user-3', name: 'Marta', lastName: 'Ruiz' } },
+      ]);
+      gradeRepository.find.mockResolvedValue([
+        { id_enrollment: 200, id_activity: 1, grade: 18 },
+        { id_enrollment: 200, id_activity: 2, grade: 16 },
+      ]);
+
+      const report = await service.reportBySection(SECTION_ID);
+
+      // (18*25 + 16*25) / (25+25) = 17
+      expect(report.students[0].average).toBe(17);
+    });
+
+    it('returns average null and all grades null for a student with no grades at all', async () => {
+      sectionRepository.findOne.mockResolvedValue({
+        id: SECTION_ID,
+        name: 'Sección A',
+        course: { name: 'Curso X' },
+      });
+      activityRepository.find.mockResolvedValue([
+        { id: 1, name: 'A1', percentage: 60 },
+        { id: 2, name: 'A2', percentage: 40 },
+      ]);
+      enrollmentRepository.find.mockResolvedValue([
+        { id: 300, active: true, user: { id: 'user-4', name: 'Diego', lastName: 'Soto' } },
+      ]);
+      gradeRepository.find.mockResolvedValue([]);
+
+      const report = await service.reportBySection(SECTION_ID);
+
+      expect(report.students[0].average).toBeNull();
+      expect(report.students[0].grades).toEqual([
+        { activityId: 1, grade: null },
+        { activityId: 2, grade: null },
+      ]);
     });
   });
 });
