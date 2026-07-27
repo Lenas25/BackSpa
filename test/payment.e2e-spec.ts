@@ -38,6 +38,7 @@ describe('/payment guard matrix (e2e)', () => {
   const findByEnrollment = jest.fn();
   const pay = jest.fn();
   const unmark = jest.fn();
+  const setDueDateForSectionInstallment = jest.fn();
 
   const SECTION_ID = 1;
   const OWN_ENROLLMENT_ID = 7;
@@ -64,7 +65,13 @@ describe('/payment guard matrix (e2e)', () => {
       providers: [
         {
           provide: PaymentService,
-          useValue: { findBySection, findByEnrollment, pay, unmark },
+          useValue: {
+            findBySection,
+            findByEnrollment,
+            pay,
+            unmark,
+            setDueDateForSectionInstallment,
+          },
         },
         AuthGuard,
         RolesGuard,
@@ -99,6 +106,9 @@ describe('/payment guard matrix (e2e)', () => {
     unmark
       .mockReset()
       .mockResolvedValue({ id: PAYMENT_ID, status: 'pendiente' });
+    setDueDateForSectionInstallment
+      .mockReset()
+      .mockResolvedValue([{ id: PAYMENT_ID, dueDate: '2026-08-01' }]);
   });
 
   describe('GET /payment/section/:id', () => {
@@ -262,6 +272,63 @@ describe('/payment guard matrix (e2e)', () => {
         .set('Authorization', bearer(token))
         .expect(403);
       expect(unmark).not.toHaveBeenCalled();
+    });
+  });
+
+  // Section+Installment-Scoped Due Date (client rule, sdd/pagos due-date
+  // refactor): only ADMIN may set/clear a "Cuota N" due date for a whole
+  // section — ALUMNO (unlike its read access on GET /payment/enrollment/:id)
+  // and TUTOR are both denied.
+  describe('PATCH /payment/section/:sectionId/installment/:installmentNumber/due-date', () => {
+    const INSTALLMENT_NUMBER = 2;
+
+    it('rejects an anonymous request', async () => {
+      await request(app.getHttpServer())
+        .patch(
+          `/payment/section/${SECTION_ID}/installment/${INSTALLMENT_NUMBER}/due-date`,
+        )
+        .send({ dueDate: '2026-08-01' })
+        .expect(401);
+      expect(setDueDateForSectionInstallment).not.toHaveBeenCalled();
+    });
+
+    it('allows an admin', async () => {
+      const token = signToken({ id: ADMIN_ID, role: Role.ADMIN });
+
+      await request(app.getHttpServer())
+        .patch(
+          `/payment/section/${SECTION_ID}/installment/${INSTALLMENT_NUMBER}/due-date`,
+        )
+        .set('Authorization', bearer(token))
+        .send({ dueDate: '2026-08-01' })
+        .expect(200);
+      expect(setDueDateForSectionInstallment).toHaveBeenCalled();
+    });
+
+    it('denies an alumno', async () => {
+      const token = signToken({ id: ALUMNO_ID, role: Role.ALUMNO });
+
+      await request(app.getHttpServer())
+        .patch(
+          `/payment/section/${SECTION_ID}/installment/${INSTALLMENT_NUMBER}/due-date`,
+        )
+        .set('Authorization', bearer(token))
+        .send({ dueDate: '2026-08-01' })
+        .expect(403);
+      expect(setDueDateForSectionInstallment).not.toHaveBeenCalled();
+    });
+
+    it('denies a tutor', async () => {
+      const token = signToken({ id: TUTOR_ID, role: Role.TUTOR });
+
+      await request(app.getHttpServer())
+        .patch(
+          `/payment/section/${SECTION_ID}/installment/${INSTALLMENT_NUMBER}/due-date`,
+        )
+        .set('Authorization', bearer(token))
+        .send({ dueDate: '2026-08-01' })
+        .expect(403);
+      expect(setDueDateForSectionInstallment).not.toHaveBeenCalled();
     });
   });
 });

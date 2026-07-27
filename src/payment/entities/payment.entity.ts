@@ -47,4 +47,14 @@ export class Payment {
   // Date-object construction entirely and removes the TZ round-trip.
   @Column({ type: 'date', nullable: true })
   paidDate: string | null;
+
+  // Manual per-installment due date (client rule: the admin may set a
+  // fecha de vencimiento on any cuota; a still-pending cuota whose dueDate
+  // is in the past is shown as "atrasado" — see PaymentService.toView()).
+  // Purely informational: no late fee/mora/extra amount is derived from it.
+  // Same date-string discipline as `paidDate` above (see that field's
+  // comment for the full root-cause trace) — NEVER wrap the validated
+  // ISO date-only string in `new Date(...)` on the write path.
+  @Column({ type: 'date', nullable: true })
+  dueDate: string | null;
 }

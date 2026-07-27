@@ -278,6 +278,19 @@ describe('PaymentService', () => {
 
   // Status derived from paidDate (design ADR), no DB status column.
   describe('toView', () => {
+    // Mirrors the LOCAL-date-parts construction required of the service's
+    // `localTodayIso()` helper (never `toISOString()`, which UTC-shifts).
+    // Used only to build test input for the today/boundary cases below —
+    // this is NOT importing the implementation, just building an expected
+    // "today" string the same timezone-safe way.
+    function todayIso(): string {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
     it('maps a null paidDate to pendiente', () => {
       const payment = {
         id: 1,
@@ -298,6 +311,94 @@ describe('PaymentService', () => {
       } as unknown as Payment;
 
       expect(service.toView(payment).status).toBe('cancelado');
+    });
+
+    // Manual due-date + "atrasado" derivation (client rule: a pending cuota
+    // whose dueDate is in the past shows as atrasado — purely informational,
+    // no late fee/mora).
+    it('returns cancelado when paidDate is set, even if dueDate is in the past', () => {
+      const payment = {
+        id: 1,
+        installmentNumber: 1,
+        amount: 100,
+        paidDate: '2026-01-01',
+        dueDate: '2000-01-01',
+      } as unknown as Payment;
+
+      expect(service.toView(payment).status).toBe('cancelado');
+    });
+
+    it('returns cancelado when paidDate is set, even if dueDate is in the future', () => {
+      const payment = {
+        id: 1,
+        installmentNumber: 1,
+        amount: 100,
+        paidDate: '2026-01-01',
+        dueDate: '2100-01-01',
+      } as unknown as Payment;
+
+      expect(service.toView(payment).status).toBe('cancelado');
+    });
+
+    it('returns atrasado when paidDate is null and dueDate is strictly before today', () => {
+      const payment = {
+        id: 1,
+        installmentNumber: 1,
+        amount: null,
+        paidDate: null,
+        dueDate: '2000-01-01',
+      } as unknown as Payment;
+
+      expect(service.toView(payment).status).toBe('atrasado');
+    });
+
+    it('returns pendiente when paidDate is null and dueDate is null', () => {
+      const payment = {
+        id: 1,
+        installmentNumber: 1,
+        amount: null,
+        paidDate: null,
+        dueDate: null,
+      } as unknown as Payment;
+
+      expect(service.toView(payment).status).toBe('pendiente');
+    });
+
+    // Boundary: dueDate == today is NOT atrasado.
+    it('returns pendiente when paidDate is null and dueDate is today', () => {
+      const payment = {
+        id: 1,
+        installmentNumber: 1,
+        amount: null,
+        paidDate: null,
+        dueDate: todayIso(),
+      } as unknown as Payment;
+
+      expect(service.toView(payment).status).toBe('pendiente');
+    });
+
+    it('returns pendiente when paidDate is null and dueDate is in the future', () => {
+      const payment = {
+        id: 1,
+        installmentNumber: 1,
+        amount: null,
+        paidDate: null,
+        dueDate: '2100-01-01',
+      } as unknown as Payment;
+
+      expect(service.toView(payment).status).toBe('pendiente');
+    });
+
+    it('includes dueDate in the view output', () => {
+      const payment = {
+        id: 1,
+        installmentNumber: 1,
+        amount: null,
+        paidDate: null,
+        dueDate: '2100-06-15',
+      } as unknown as Payment;
+
+      expect(service.toView(payment).dueDate).toBe('2100-06-15');
     });
 
     // Regression guard (sdd/pagos verify PR3/PR4 WARNING finding): Postgres
@@ -458,6 +559,171 @@ describe('PaymentService', () => {
 
       await expect(service.unmark(999)).rejects.toThrow(BadRequestException);
       expect(paymentRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // Section+Installment-Scoped Due Date (client rule, sdd/pagos due-date
+  // refactor): a "Cuota N" due date applies to EVERY student's installment N
+  // in the section, not to one Payment row. Mirrors adjustForSection's
+  // section -> enrollments -> payments resolution/transaction pattern.
+  // Assigns the validated date-only string straight through, same discipline
+  // as `pay()`'s paidDate assignment.
+  describe('setDueDateForSectionInstallment', () => {
+    const enrollmentA = { id: 1 } as Enrollment;
+    const enrollmentB = { id: 2 } as Enrollment;
+
+    function mockTransaction(matchingPayments: Payment[]) {
+      const enrollmentRepo = {
+        find: jest.fn().mockResolvedValue([enrollmentA, enrollmentB]),
+      };
+      const txPaymentRepo = {
+        find: jest.fn().mockResolvedValue(matchingPayments),
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      const manager = {
+        getRepository: jest.fn((entity) =>
+          entity === Enrollment ? enrollmentRepo : txPaymentRepo,
+        ),
+      };
+      dataSource.transaction.mockImplementation(async (cb: any) => cb(manager));
+      return { enrollmentRepo, txPaymentRepo };
+    }
+
+    it('sets dueDate on every matching installment-N row across the section and returns the refreshed section rows', async () => {
+      const matching = [
+        {
+          id: 10,
+          installmentNumber: 2,
+          enrollment: enrollmentA,
+          dueDate: null,
+        } as unknown as Payment,
+        {
+          id: 11,
+          installmentNumber: 2,
+          enrollment: enrollmentB,
+          dueDate: null,
+        } as unknown as Payment,
+      ];
+      const { enrollmentRepo, txPaymentRepo } = mockTransaction(matching);
+
+      // findBySection's refresh call runs against the outer (non-tx) repos.
+      enrollmentRepository.find.mockResolvedValue([enrollmentA, enrollmentB]);
+      paymentRepository.find.mockResolvedValue(
+        matching.map((payment) => ({
+          ...payment,
+          dueDate: '2026-08-01',
+        })),
+      );
+
+      const result = await service.setDueDateForSectionInstallment(5, 2, {
+        dueDate: '2026-08-01',
+      });
+
+      expect(enrollmentRepo.find).toHaveBeenCalledWith({
+        where: { section: { id: 5 } },
+      });
+      expect(txPaymentRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ installmentNumber: 2 }),
+        }),
+      );
+      expect(txPaymentRepo.save).toHaveBeenCalledWith([
+        expect.objectContaining({ id: 10, dueDate: '2026-08-01' }),
+        expect.objectContaining({ id: 11, dueDate: '2026-08-01' }),
+      ]);
+      const savedArg = txPaymentRepo.save.mock.calls[0][0];
+      expect(savedArg.every((p: Payment) => typeof p.dueDate === 'string')).toBe(
+        true,
+      );
+      expect(result).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 10, dueDate: '2026-08-01' }),
+          expect.objectContaining({ id: 11, dueDate: '2026-08-01' }),
+        ]),
+      );
+    });
+
+    it('clears dueDate to null across the section when dto.dueDate is null', async () => {
+      const matching = [
+        {
+          id: 10,
+          installmentNumber: 2,
+          enrollment: enrollmentA,
+          dueDate: '2026-08-01',
+        } as unknown as Payment,
+      ];
+      const { txPaymentRepo } = mockTransaction(matching);
+      enrollmentRepository.find.mockResolvedValue([enrollmentA]);
+      paymentRepository.find.mockResolvedValue([
+        { ...matching[0], dueDate: null },
+      ]);
+
+      const result = await service.setDueDateForSectionInstallment(5, 2, {
+        dueDate: null,
+      });
+
+      expect(txPaymentRepo.save).toHaveBeenCalledWith([
+        expect.objectContaining({ id: 10, dueDate: null }),
+      ]);
+      expect(result[0].dueDate).toBeNull();
+    });
+
+    it('does not touch other installment numbers: the query scopes strictly to the requested installmentNumber', async () => {
+      // A real repository's `where: { installmentNumber }` filter would never
+      // return rows for other installment numbers — this asserts that filter
+      // is actually passed, so cuota 1/3/etc. rows in the same section are
+      // untouched by this write.
+      const onlyInstallmentTwo = [
+        {
+          id: 10,
+          installmentNumber: 2,
+          enrollment: enrollmentA,
+          dueDate: null,
+        } as unknown as Payment,
+      ];
+      const { txPaymentRepo } = mockTransaction(onlyInstallmentTwo);
+      enrollmentRepository.find.mockResolvedValue([enrollmentA]);
+      paymentRepository.find.mockResolvedValue([
+        { ...onlyInstallmentTwo[0], dueDate: '2026-08-01' },
+      ]);
+
+      await service.setDueDateForSectionInstallment(5, 2, {
+        dueDate: '2026-08-01',
+      });
+
+      const findArg = txPaymentRepo.find.mock.calls[0][0];
+      expect(findArg.where.installmentNumber).toBe(2);
+      const savedArg = txPaymentRepo.save.mock.calls[0][0];
+      expect(
+        savedArg.every((p: Payment) => p.installmentNumber === 2),
+      ).toBe(true);
+    });
+
+    it('makes no changes when the section has no enrollments', async () => {
+      const { txPaymentRepo, enrollmentRepo } = mockTransaction([]);
+      enrollmentRepo.find.mockResolvedValue([]);
+      enrollmentRepository.find.mockResolvedValue([]);
+
+      const result = await service.setDueDateForSectionInstallment(5, 2, {
+        dueDate: '2026-08-01',
+      });
+
+      expect(txPaymentRepo.find).not.toHaveBeenCalled();
+      expect(txPaymentRepo.save).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
+    });
+
+    it('makes no changes when no payment in the section matches the installment number', async () => {
+      const { txPaymentRepo } = mockTransaction([]);
+      enrollmentRepository.find.mockResolvedValue([enrollmentA]);
+      paymentRepository.find.mockResolvedValue([]);
+
+      const result = await service.setDueDateForSectionInstallment(5, 9, {
+        dueDate: '2026-08-01',
+      });
+
+      expect(txPaymentRepo.save).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
     });
   });
 

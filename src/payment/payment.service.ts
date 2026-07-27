@@ -8,6 +8,7 @@ import { DataSource, In, Repository } from 'typeorm';
 import { Payment } from './entities/payment.entity';
 import { Enrollment } from 'src/enrollment/entities/enrollment.entity';
 import { RegisterPaymentDto } from './dto/register-payment.dto';
+import { SetDueDateDto } from './dto/set-due-date.dto';
 import { Role } from 'src/common/enums/role.enum';
 import type { RequestingUser } from 'src/section/section.service';
 
@@ -16,7 +17,22 @@ export interface PaymentView {
   installmentNumber: number;
   amount: number | null;
   paidDate: string | null;
-  status: 'pendiente' | 'cancelado';
+  dueDate: string | null;
+  status: 'pendiente' | 'cancelado' | 'atrasado';
+}
+
+// LOCAL date-parts string, built the same way `paidDate`/`dueDate` are
+// validated and stored ("YYYY-MM-DD"). Deliberately NOT `toISOString()`,
+// which reads UTC and shifts the calendar day on any host east of UTC-0 at
+// certain times of day. Both operands of the `<` comparison below are
+// zero-padded "YYYY-MM-DD" strings, so a plain string compare is correct
+// and timezone-safe — no `new Date(...)` parsing needed on either side.
+function localTodayIso(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export interface PaymentSectionRow extends PaymentView {
@@ -36,9 +52,15 @@ export class PaymentService {
     private readonly dataSource: DataSource,
   ) {}
 
-  // Status is derived from paidDate, never a DB column (design ADR "Status:
-  // derived from paidDate" — sdd/pagos/design). Only payment endpoints
-  // return this view.
+  // Status is derived from paidDate/dueDate, never a DB column (design ADR
+  // "Status: derived from paidDate" — sdd/pagos/design; extended by the
+  // dueDate/atrasado feature). Only payment endpoints return this view.
+  //
+  // "atrasado" derivation (client rule): paidDate always wins — a paid
+  // installment is "cancelado" even if its dueDate is in the past. Only a
+  // still-PENDING installment (paidDate null) with a dueDate strictly
+  // before today becomes "atrasado". This is purely informational: no late
+  // fee/mora/extra amount is computed anywhere from this status.
   //
   // `amount` normalization (bugfix, sdd/pagos verify PR3/PR4 WARNING
   // finding): Postgres `numeric` columns are hydrated by node-postgres as
@@ -57,12 +79,22 @@ export class PaymentService {
   // anywhere in `src/`. Normalizing explicitly here is the fix that
   // actually reaches the response.
   toView(payment: Payment): PaymentView {
+    let status: PaymentView['status'];
+    if (payment.paidDate != null) {
+      status = 'cancelado';
+    } else if (payment.dueDate != null && payment.dueDate < localTodayIso()) {
+      status = 'atrasado';
+    } else {
+      status = 'pendiente';
+    }
+
     return {
       id: payment.id,
       installmentNumber: payment.installmentNumber,
       amount: payment.amount === null ? null : Number(payment.amount),
       paidDate: payment.paidDate,
-      status: payment.paidDate ? 'cancelado' : 'pendiente',
+      dueDate: payment.dueDate ?? null,
+      status,
     };
   }
 
@@ -220,6 +252,55 @@ export class PaymentService {
 
     const saved = await this.paymentRepository.save(payment);
     return this.toView(saved);
+  }
+
+  // Section+Installment-Scoped Due Date (client rule, sdd/pagos due-date
+  // refactor): a "Cuota N" due date belongs to the SECTION, not to an
+  // individual student's Payment row — setting it must apply to EVERY
+  // student's installment N in that section. Mirrors adjustForSection's
+  // section -> enrollments -> payments resolution and transaction pattern
+  // (design ADR "Adjustment atomicity" — sdd/pagos/design — extended here to
+  // due-date writes). Assigns the DTO's validated string (or null) straight
+  // through: never construct `new Date(dto.dueDate)` (see
+  // entities/payment.entity.ts's `dueDate` field comment for the TZ
+  // root-cause trace shared with `paidDate`). Returns the refreshed section
+  // rows via `findBySection` so the caller always sees the full updated
+  // grid, not just the rows touched by this write.
+  async setDueDateForSectionInstallment(
+    sectionId: number,
+    installmentNumber: number,
+    dto: SetDueDateDto,
+  ): Promise<PaymentSectionRow[]> {
+    await this.dataSource.transaction(async (manager) => {
+      const enrollmentRepository = manager.getRepository(Enrollment);
+      const paymentRepository = manager.getRepository(Payment);
+
+      const enrollments = await enrollmentRepository.find({
+        where: { section: { id: sectionId } },
+      });
+      if (enrollments.length === 0) {
+        return;
+      }
+
+      const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+      const payments = await paymentRepository.find({
+        where: {
+          enrollment: { id: In(enrollmentIds) },
+          installmentNumber,
+        },
+      });
+
+      if (payments.length === 0) {
+        return;
+      }
+
+      for (const payment of payments) {
+        payment.dueDate = dto.dueDate;
+      }
+      await paymentRepository.save(payments);
+    });
+
+    return this.findBySection(sectionId);
   }
 
   // Alumno Read-Only Mis Cuotas + Role-Based Access (spec:

@@ -12,6 +12,7 @@ import {
 import type { Request, Response } from 'express';
 import { PaymentService } from './payment.service';
 import { RegisterPaymentDto } from './dto/register-payment.dto';
+import { SetDueDateDto } from './dto/set-due-date.dto';
 import { Role } from 'src/common/enums/role.enum';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RolesGuard } from 'src/auth/guard/roles.guard';
@@ -101,6 +102,39 @@ export class PaymentController {
       const status = e instanceof HttpException ? e.getStatus() : 400;
       return response.status(status).json({
         message: 'Error al registrar la cuota',
+        error: e.message,
+      });
+    }
+  }
+
+  // Section+Installment-Scoped Due Date (client rule, sdd/pagos due-date
+  // refactor): sets/clears the "Cuota N" due date for EVERY student's
+  // installment N in the section — ADMIN only, unlike the read routes above
+  // where ALUMNO also has access. Returns the refreshed section rows (same
+  // shape as GET /payment/section/:id) so the frontend grid can repaint in
+  // place.
+  @Patch('section/:sectionId/installment/:installmentNumber/due-date')
+  @Roles(Role.ADMIN)
+  async setDueDateForSectionInstallment(
+    @Param('sectionId') sectionId: number,
+    @Param('installmentNumber') installmentNumber: number,
+    @Body() setDueDateDto: SetDueDateDto,
+    @Res() response: Response,
+  ): Promise<Response> {
+    try {
+      const payments = await this.paymentService.setDueDateForSectionInstallment(
+        sectionId,
+        installmentNumber,
+        setDueDateDto,
+      );
+      return response.status(200).json({
+        message: 'Fecha de vencimiento actualizada correctamente',
+        data: payments,
+      });
+    } catch (e) {
+      const status = e instanceof HttpException ? e.getStatus() : 400;
+      return response.status(status).json({
+        message: 'Error al actualizar la fecha de vencimiento',
         error: e.message,
       });
     }
