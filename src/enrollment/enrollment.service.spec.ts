@@ -7,6 +7,21 @@ import { User } from 'src/user/entities/user.entity';
 import { Section } from 'src/section/entities/section.entity';
 import { Role } from 'src/common/enums/role.enum';
 import { PaymentService } from 'src/payment/payment.service';
+import { Grade } from 'src/grade/entities/grade.entity';
+import { Activity } from 'src/activity/entities/activity.entity';
+import { Notification } from 'src/notification/entities/notification.entity';
+
+// Shared no-op mocks for the repositories finish/reopen need on top of the
+// pre-existing Enrollment/User/Section/PaymentService set. Only the
+// finish/reopen describe blocks below give these real behavior — the other
+// describe blocks in this file never call finishSection/reopenSection, so
+// empty stubs are enough to satisfy EnrollmentService's constructor DI.
+const noopGradeRepository = () => ({ find: jest.fn().mockResolvedValue([]) });
+const noopActivityRepository = () => ({ find: jest.fn().mockResolvedValue([]) });
+const noopNotificationRepository = () => ({
+  create: jest.fn((data) => data),
+  save: jest.fn().mockResolvedValue({}),
+});
 
 // Duplicate Enrollment Rejection / Multi-Section Enrollment (spec:
 // "section-enrollment" domain) — a student MAY be enrolled in multiple
@@ -52,6 +67,9 @@ describe('EnrollmentService — duplicate enrollment rules', () => {
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(Section), useValue: sectionRepository },
         { provide: PaymentService, useValue: paymentService },
+        { provide: getRepositoryToken(Grade), useValue: noopGradeRepository() },
+        { provide: getRepositoryToken(Activity), useValue: noopActivityRepository() },
+        { provide: getRepositoryToken(Notification), useValue: noopNotificationRepository() },
       ],
     }).compile();
 
@@ -130,6 +148,9 @@ describe('EnrollmentService.findAll — tutor section-scoped listing', () => {
           provide: PaymentService,
           useValue: { generateForEnrollment: jest.fn() },
         },
+        { provide: getRepositoryToken(Grade), useValue: noopGradeRepository() },
+        { provide: getRepositoryToken(Activity), useValue: noopActivityRepository() },
+        { provide: getRepositoryToken(Notification), useValue: noopNotificationRepository() },
       ],
     }).compile();
 
@@ -195,6 +216,9 @@ describe('EnrollmentService.findOneByUser — alumno own-data scoping', () => {
           provide: PaymentService,
           useValue: { generateForEnrollment: jest.fn() },
         },
+        { provide: getRepositoryToken(Grade), useValue: noopGradeRepository() },
+        { provide: getRepositoryToken(Activity), useValue: noopActivityRepository() },
+        { provide: getRepositoryToken(Notification), useValue: noopNotificationRepository() },
       ],
     }).compile();
 
@@ -284,6 +308,9 @@ describe('EnrollmentService.update — installment generation hook', () => {
           provide: PaymentService,
           useValue: paymentService,
         },
+        { provide: getRepositoryToken(Grade), useValue: noopGradeRepository() },
+        { provide: getRepositoryToken(Activity), useValue: noopActivityRepository() },
+        { provide: getRepositoryToken(Notification), useValue: noopNotificationRepository() },
       ],
     }).compile();
 
@@ -380,5 +407,269 @@ describe('EnrollmentService.update — installment generation hook', () => {
     await expect(
       service.update(section.id, { users: [{ id: 'user-a' }] } as never),
     ).rejects.toMatchObject({ message: originalMessage });
+  });
+});
+
+// Finalizar / Reabrir sección (manual, admin-only, reversible): finishing a
+// section does NOT lock editing and has NO completeness requirement — a
+// student with missing grades is simply DESAPROBADO. reopenSection is the
+// inverse operation. Neither flips any data destructively — see the
+// dedicated "never delete data" describe block below.
+describe('EnrollmentService.reopenSection — reversible finish', () => {
+  let service: EnrollmentService;
+  let enrollmentRepository: { find: jest.Mock; save: jest.Mock };
+  let sectionRepository: { findOne: jest.Mock; save: jest.Mock };
+
+  const section = { id: 7, name: 'Cohorte Marzo', isActive: false } as Section;
+
+  beforeEach(async () => {
+    enrollmentRepository = { find: jest.fn(), save: jest.fn() };
+    sectionRepository = { findOne: jest.fn(), save: jest.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        EnrollmentService,
+        { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
+        { provide: getRepositoryToken(User), useValue: { findOne: jest.fn() } },
+        { provide: getRepositoryToken(Section), useValue: sectionRepository },
+        { provide: PaymentService, useValue: { generateForEnrollment: jest.fn() } },
+        { provide: getRepositoryToken(Grade), useValue: noopGradeRepository() },
+        { provide: getRepositoryToken(Activity), useValue: noopActivityRepository() },
+        { provide: getRepositoryToken(Notification), useValue: noopNotificationRepository() },
+      ],
+    }).compile();
+
+    service = module.get<EnrollmentService>(EnrollmentService);
+    sectionRepository.findOne.mockResolvedValue(section);
+  });
+
+  it('sets every enrollment of the section back to active=true and the section back to isActive=true', async () => {
+    const enrollments = [
+      { id: 1, active: false },
+      { id: 2, active: false },
+    ];
+    enrollmentRepository.find.mockResolvedValue(enrollments);
+    enrollmentRepository.save.mockImplementation((e) => Promise.resolve(e));
+    sectionRepository.save.mockResolvedValue({ ...section, isActive: true });
+
+    const result = await service.reopenSection(section.id);
+
+    expect(enrollments.every((e) => e.active === true)).toBe(true);
+    expect(enrollmentRepository.save).toHaveBeenCalledTimes(2);
+    expect(sectionRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ isActive: true }),
+    );
+    expect(result).toEqual(enrollments);
+  });
+});
+
+// Notify on Finish: one Notification per finished student, with the
+// APROBADO/DESAPROBADO verdict computed from the enrollment's actual grades
+// (same weighted-average formula as GradeService.recalculateFinalGrade),
+// NOT from enrollment.final_grade — which is not reliably maintained while
+// the section is active. Passing grade is PASSING_GRADE (15/20), a backend
+// constant distinct from institution-config.minApproving (constancia
+// threshold, a separate concern).
+describe('EnrollmentService.finishSection — notifies students with pass/fail verdict', () => {
+  let service: EnrollmentService;
+  let enrollmentRepository: { find: jest.Mock; save: jest.Mock };
+  let sectionRepository: { findOne: jest.Mock; save: jest.Mock };
+  let activityRepository: { find: jest.Mock };
+  let gradeRepository: { find: jest.Mock };
+  let notificationRepository: { create: jest.Mock; save: jest.Mock };
+
+  const section = {
+    id: 9,
+    name: 'Cohorte Julio',
+    isActive: true,
+    course: { id: 1, name: 'Curso de Node.js' },
+  } as Section;
+
+  const activities = [{ id: 100, percentage: 100 }];
+
+  beforeEach(async () => {
+    enrollmentRepository = { find: jest.fn(), save: jest.fn() };
+    sectionRepository = { findOne: jest.fn(), save: jest.fn() };
+    activityRepository = { find: jest.fn() };
+    gradeRepository = { find: jest.fn() };
+    notificationRepository = {
+      create: jest.fn((data) => data),
+      save: jest.fn().mockResolvedValue({}),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        EnrollmentService,
+        { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
+        { provide: getRepositoryToken(User), useValue: { findOne: jest.fn() } },
+        { provide: getRepositoryToken(Section), useValue: sectionRepository },
+        { provide: PaymentService, useValue: { generateForEnrollment: jest.fn() } },
+        { provide: getRepositoryToken(Grade), useValue: gradeRepository },
+        { provide: getRepositoryToken(Activity), useValue: activityRepository },
+        { provide: getRepositoryToken(Notification), useValue: notificationRepository },
+      ],
+    }).compile();
+
+    service = module.get<EnrollmentService>(EnrollmentService);
+    sectionRepository.findOne.mockResolvedValue(section);
+    sectionRepository.save.mockResolvedValue({ ...section, isActive: false });
+    enrollmentRepository.save.mockImplementation((e) => Promise.resolve(e));
+    activityRepository.find.mockResolvedValue(activities);
+  });
+
+  it('marks a student APROBADO exactly at the 15 boundary', async () => {
+    const enrollment = { id: 1, active: true };
+    enrollmentRepository.find.mockResolvedValue([enrollment]);
+    gradeRepository.find.mockResolvedValue([{ id_activity: 100, id_enrollment: 1, grade: 15 }]);
+
+    await service.finishSection(section.id);
+
+    expect(notificationRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: expect.stringContaining('APROBADO'),
+        enrollment,
+      }),
+    );
+    const savedDescription = notificationRepository.save.mock.calls[0][0].description;
+    expect(savedDescription).not.toContain('DESAPROBADO');
+  });
+
+  it('marks a student DESAPROBADO just below the 15 boundary (14)', async () => {
+    const enrollment = { id: 2, active: true };
+    enrollmentRepository.find.mockResolvedValue([enrollment]);
+    gradeRepository.find.mockResolvedValue([{ id_activity: 100, id_enrollment: 2, grade: 14 }]);
+
+    await service.finishSection(section.id);
+
+    expect(notificationRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ description: expect.stringContaining('DESAPROBADO') }),
+    );
+  });
+
+  it('marks a student with no graded activities as DESAPROBADO (average 0)', async () => {
+    const enrollment = { id: 3, active: true };
+    enrollmentRepository.find.mockResolvedValue([enrollment]);
+    gradeRepository.find.mockResolvedValue([]);
+
+    await service.finishSection(section.id);
+
+    expect(notificationRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ description: expect.stringContaining('DESAPROBADO') }),
+    );
+    const savedDescription = notificationRepository.save.mock.calls[0][0].description;
+    expect(savedDescription).toContain('0.00');
+  });
+
+  it('creates exactly one notification per finished student', async () => {
+    const enrollments = [
+      { id: 1, active: true },
+      { id: 2, active: true },
+    ];
+    enrollmentRepository.find.mockResolvedValue(enrollments);
+    gradeRepository.find.mockResolvedValue([]);
+
+    await service.finishSection(section.id);
+
+    expect(notificationRepository.save).toHaveBeenCalledTimes(2);
+  });
+
+  it('deactivates every finished enrollment and the section', async () => {
+    const enrollment = { id: 1, active: true };
+    enrollmentRepository.find.mockResolvedValue([enrollment]);
+    gradeRepository.find.mockResolvedValue([]);
+
+    await service.finishSection(section.id);
+
+    expect(enrollment.active).toBe(false);
+    expect(sectionRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ isActive: false }),
+    );
+  });
+});
+
+// Finishing/reopening must NEVER delete or purge data — only flip
+// active/isActive flags and insert notifications. This guards against a
+// future refactor accidentally introducing a destructive cleanup step.
+describe('EnrollmentService — finish/reopen never delete data', () => {
+  let service: EnrollmentService;
+  let enrollmentRepository: {
+    find: jest.Mock;
+    save: jest.Mock;
+    delete: jest.Mock;
+    remove: jest.Mock;
+  };
+  let sectionRepository: { findOne: jest.Mock; save: jest.Mock };
+  let activityRepository: { find: jest.Mock };
+  let gradeRepository: { find: jest.Mock; delete: jest.Mock; remove: jest.Mock };
+  let notificationRepository: {
+    create: jest.Mock;
+    save: jest.Mock;
+    delete: jest.Mock;
+    remove: jest.Mock;
+  };
+
+  const section = {
+    id: 11,
+    name: 'Cohorte Setiembre',
+    isActive: true,
+    course: { id: 1, name: 'Curso de QA' },
+  } as Section;
+
+  beforeEach(async () => {
+    enrollmentRepository = {
+      find: jest.fn(),
+      save: jest.fn().mockImplementation((e) => Promise.resolve(e)),
+      delete: jest.fn(),
+      remove: jest.fn(),
+    };
+    sectionRepository = {
+      findOne: jest.fn().mockResolvedValue(section),
+      save: jest.fn().mockResolvedValue(section),
+    };
+    activityRepository = { find: jest.fn().mockResolvedValue([]) };
+    gradeRepository = { find: jest.fn().mockResolvedValue([]), delete: jest.fn(), remove: jest.fn() };
+    notificationRepository = {
+      create: jest.fn((data) => data),
+      save: jest.fn().mockResolvedValue({}),
+      delete: jest.fn(),
+      remove: jest.fn(),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        EnrollmentService,
+        { provide: getRepositoryToken(Enrollment), useValue: enrollmentRepository },
+        { provide: getRepositoryToken(User), useValue: { findOne: jest.fn() } },
+        { provide: getRepositoryToken(Section), useValue: sectionRepository },
+        { provide: PaymentService, useValue: { generateForEnrollment: jest.fn() } },
+        { provide: getRepositoryToken(Grade), useValue: gradeRepository },
+        { provide: getRepositoryToken(Activity), useValue: activityRepository },
+        { provide: getRepositoryToken(Notification), useValue: notificationRepository },
+      ],
+    }).compile();
+
+    service = module.get<EnrollmentService>(EnrollmentService);
+  });
+
+  it('finishSection never calls delete/remove on any repository', async () => {
+    enrollmentRepository.find.mockResolvedValue([{ id: 1, active: true }]);
+
+    await service.finishSection(section.id);
+
+    expect(enrollmentRepository.delete).not.toHaveBeenCalled();
+    expect(enrollmentRepository.remove).not.toHaveBeenCalled();
+    expect(gradeRepository.delete).not.toHaveBeenCalled();
+    expect(gradeRepository.remove).not.toHaveBeenCalled();
+    expect(notificationRepository.delete).not.toHaveBeenCalled();
+    expect(notificationRepository.remove).not.toHaveBeenCalled();
+  });
+
+  it('reopenSection never calls delete/remove on any repository', async () => {
+    enrollmentRepository.find.mockResolvedValue([{ id: 1, active: false }]);
+
+    await service.reopenSection(section.id);
+
+    expect(enrollmentRepository.delete).not.toHaveBeenCalled();
+    expect(enrollmentRepository.remove).not.toHaveBeenCalled();
   });
 });

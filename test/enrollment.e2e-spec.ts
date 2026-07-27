@@ -182,3 +182,117 @@ describe('GET /enrollment (e2e) — findAll tutor scoping', () => {
       .expect(403);
   });
 });
+
+// Finalizar / Reabrir sección (manual, admin-only): PATCH /enrollment/finish/:id
+// and PATCH /enrollment/reopen/:id must both be admin-only — anonymous callers
+// get 401 from AuthGuard, ALUMNO/TUTOR get 403 from RolesGuard, ADMIN gets 200.
+describe('PATCH /enrollment/finish/:id and /reopen/:id (e2e) — admin-only guard', () => {
+  let app: INestApplication;
+  let jwtService: JwtService;
+  const finishSection = jest.fn();
+  const reopenSection = jest.fn();
+
+  const SECTION_ID = 3;
+
+  const signToken = (payload: { id: string; role: Role }) => jwtService.sign(payload);
+  const bearer = (token: string) => `Bearer ${token}`;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [
+        JwtModule.register({ secret: TEST_JWT_SECRET, signOptions: { expiresIn: '1h' } }),
+      ],
+      controllers: [EnrollmentController],
+      providers: [
+        { provide: EnrollmentService, useValue: { finishSection, reopenSection } },
+        { provide: getRepositoryToken(Section), useValue: { findOne: jest.fn() } },
+        AuthGuard,
+        RolesGuard,
+        SectionOwnershipGuard,
+      ],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+    jwtService = moduleFixture.get(JwtService);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    finishSection.mockReset().mockResolvedValue([]);
+    reopenSection.mockReset().mockResolvedValue([]);
+  });
+
+  it('rejects an anonymous caller from finishing a section', async () => {
+    await request(app.getHttpServer())
+      .patch(`/enrollment/finish/${SECTION_ID}`)
+      .expect(401);
+  });
+
+  it('rejects an anonymous caller from reopening a section', async () => {
+    await request(app.getHttpServer())
+      .patch(`/enrollment/reopen/${SECTION_ID}`)
+      .expect(401);
+  });
+
+  it('rejects an ALUMNO from finishing a section', async () => {
+    const token = signToken({ id: 'student-1', role: Role.ALUMNO });
+
+    await request(app.getHttpServer())
+      .patch(`/enrollment/finish/${SECTION_ID}`)
+      .set('Authorization', bearer(token))
+      .expect(403);
+  });
+
+  it('rejects a TUTOR from finishing a section', async () => {
+    const token = signToken({ id: 'tutor-1', role: Role.TUTOR });
+
+    await request(app.getHttpServer())
+      .patch(`/enrollment/finish/${SECTION_ID}`)
+      .set('Authorization', bearer(token))
+      .expect(403);
+  });
+
+  it('rejects an ALUMNO from reopening a section', async () => {
+    const token = signToken({ id: 'student-1', role: Role.ALUMNO });
+
+    await request(app.getHttpServer())
+      .patch(`/enrollment/reopen/${SECTION_ID}`)
+      .set('Authorization', bearer(token))
+      .expect(403);
+  });
+
+  it('rejects a TUTOR from reopening a section', async () => {
+    const token = signToken({ id: 'tutor-1', role: Role.TUTOR });
+
+    await request(app.getHttpServer())
+      .patch(`/enrollment/reopen/${SECTION_ID}`)
+      .set('Authorization', bearer(token))
+      .expect(403);
+  });
+
+  it('allows an ADMIN to finish a section', async () => {
+    const token = signToken({ id: 'admin-1', role: Role.ADMIN });
+
+    await request(app.getHttpServer())
+      .patch(`/enrollment/finish/${SECTION_ID}`)
+      .set('Authorization', bearer(token))
+      .expect(200);
+
+    expect(finishSection).toHaveBeenCalledWith(String(SECTION_ID));
+  });
+
+  it('allows an ADMIN to reopen a section', async () => {
+    const token = signToken({ id: 'admin-1', role: Role.ADMIN });
+
+    await request(app.getHttpServer())
+      .patch(`/enrollment/reopen/${SECTION_ID}`)
+      .set('Authorization', bearer(token))
+      .expect(200);
+
+    expect(reopenSection).toHaveBeenCalledWith(String(SECTION_ID));
+  });
+});

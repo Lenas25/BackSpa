@@ -8,6 +8,17 @@ import { Enrollment } from './entities/enrollment.entity';
 import { Role } from 'src/common/enums/role.enum';
 import type { RequestingUser } from 'src/section/section.service';
 import { PaymentService } from 'src/payment/payment.service';
+import { Grade } from 'src/grade/entities/grade.entity';
+import { Activity } from 'src/activity/entities/activity.entity';
+import { Notification } from 'src/notification/entities/notification.entity';
+
+// Finalizar / Reabrir sección — business rule: the passing grade for the
+// finish-section verdict is 15 on the 0-20 scale. This is DELIBERATELY a
+// separate constant from institution-config.minApproving: that one gates
+// whether a "constancia" (certificate) can be issued and is admin-editable;
+// this one is the fixed APROBADO/DESAPROBADO cut used only for the
+// finish-notification verdict.
+const PASSING_GRADE = 15;
 
 @Injectable()
 export class EnrollmentService {
@@ -18,6 +29,12 @@ export class EnrollmentService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Section)
     private readonly sectionRepository: Repository<Section>,
+    @InjectRepository(Grade)
+    private readonly gradeRepository: Repository<Grade>,
+    @InjectRepository(Activity)
+    private readonly activityRepository: Repository<Activity>,
+    @InjectRepository(Notification)
+    private readonly notificationRepository: Repository<Notification>,
     private readonly paymentService: PaymentService,
   ) { }
 
@@ -182,12 +199,18 @@ export class EnrollmentService {
   }
 
 
+  // Finalizar sección (manual, admin-only). Client rules: finishing does
+  // NOT lock editing (section stays editable), has NO completeness
+  // requirement (a student with missing grades is simply DESAPROBADO), and
+  // is reversible via reopenSection. Only flags are flipped — no row is
+  // ever deleted or purged.
   async finishSection(id: number) {
     try {
       const section = await this.sectionRepository.findOne({
         where: {
           id
-        }
+        },
+        relations: ['course'],
       });
       const enrollments = await this.enrollmentRepository.find({
         where: {
@@ -198,9 +221,41 @@ export class EnrollmentService {
         }
       });
 
+      // Weighted-average percentage map, built once for the whole section —
+      // SAME formula as GradeService.recalculateFinalGrade / reportBySection
+      // (Σ(nota×pct) / Σ(pct de actividades calificadas)). We deliberately
+      // recompute from grades here instead of trusting enrollment.final_grade,
+      // which is not guaranteed to be fresh while the section is active.
+      const activities = await this.activityRepository.find({
+        where: { section: { id: section.id } },
+      });
+      const activityPercentageMap = new Map<number, number>();
+      activities.forEach((activity) => {
+        activityPercentageMap.set(activity.id, Number(activity.percentage));
+      });
+
+      const courseName = section.course?.name ?? '';
+
       for (const enrollment of enrollments) {
         enrollment.active = false;
         await this.enrollmentRepository.save(enrollment);
+
+        // Notify on finish: one Notification per finished student with the
+        // APROBADO/DESAPROBADO verdict at the PASSING_GRADE boundary.
+        const { average, verdict } = await this.computeFinalVerdict(
+          enrollment.id,
+          activityPercentageMap,
+        );
+
+        // description column is varchar(100) — truncate defensively so a
+        // long course/section name can never fail the insert.
+        const description = `El curso ${courseName} — ${section.name} finalizó. Tu nota final: ${average.toFixed(2)} (${verdict}).`.slice(0, 100);
+
+        const notification = this.notificationRepository.create({
+          description,
+          enrollment,
+        });
+        await this.notificationRepository.save(notification);
       }
 
       section.isActive = false;
@@ -211,5 +266,65 @@ export class EnrollmentService {
     }
   }
 
+  // Reabrir sección — the inverse of finishSection. Reactivates every
+  // enrollment of the section and flips the section back to isActive=true.
+  // No data is deleted or recreated; existing grades/notifications are left
+  // untouched.
+  async reopenSection(id: number) {
+    try {
+      const section = await this.sectionRepository.findOne({
+        where: {
+          id
+        }
+      });
+      const enrollments = await this.enrollmentRepository.find({
+        where: {
+          section: {
+            id: section.id
+          }
+        }
+      });
+
+      for (const enrollment of enrollments) {
+        enrollment.active = true;
+        await this.enrollmentRepository.save(enrollment);
+      }
+
+      section.isActive = true;
+      await this.sectionRepository.save(section);
+      return enrollments;
+    } catch (error) {
+      throw new BadRequestException(error);
+    }
+  }
+
+  // Weighted average per enrollment, same formula as
+  // GradeService.recalculateFinalGrade: only graded activities contribute,
+  // both to the weighted sum and to the total weight. No graded activities
+  // (or zero total weight) => average 0 => DESAPROBADO.
+  private async computeFinalVerdict(
+    enrollmentId: number,
+    activityPercentageMap: Map<number, number>,
+  ): Promise<{ average: number; verdict: 'APROBADO' | 'DESAPROBADO' }> {
+    const grades = await this.gradeRepository.find({
+      where: { id_enrollment: enrollmentId },
+    });
+
+    let weightedSum = 0;
+    let totalWeight = 0;
+    for (const grade of grades) {
+      const percentage = activityPercentageMap.get(grade.id_activity);
+      if (percentage) {
+        weightedSum += Number(grade.grade) * percentage;
+        totalWeight += percentage;
+      }
+    }
+
+    const average = totalWeight > 0 ? Number((weightedSum / totalWeight).toFixed(2)) : 0;
+    const verdict: 'APROBADO' | 'DESAPROBADO' =
+      average >= PASSING_GRADE ? 'APROBADO' : 'DESAPROBADO';
+
+    return { average, verdict };
+  }
 
 }

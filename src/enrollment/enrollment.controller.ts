@@ -98,4 +98,21 @@ export class EnrollmentController {
       });
     }
   }
+
+  @Patch('/reopen/:id')
+  @Roles(Role.ADMIN)
+  async reopenSection(@Param('id') id: number, @Res() response: Response): Promise<Response> {
+    try {
+      const enrollmentReopened = await this.enrollmentService.reopenSection(id);
+      return response.status(200).json({
+        message: "Curso reabierto",
+        data: enrollmentReopened,
+      });
+    } catch (error) {
+      return response.status(400).json({
+        message: "Error al reabrir el curso",
+        error: error.message,
+      });
+    }
+  }
 }
