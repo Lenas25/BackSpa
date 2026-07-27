@@ -25,8 +25,8 @@ const DEFAULT_CONFIG: Omit<InstitutionConfig, 'id'> = {
   city: '',
   contactFooter: '',
   gradeScaleText:
-    'Los resultados se interpretan en la escala numérica del 0 al 20; la calificación mínima aprobatoria es 11.',
-  minApproving: 11,
+    'Los resultados se interpretan en la escala numérica del 0 al 20; la calificación mínima aprobatoria es 15.',
+  minApproving: 15,
   approvedLabel: 'APROBADO',
   failedLabel: 'DESAPROBADO',
 };
